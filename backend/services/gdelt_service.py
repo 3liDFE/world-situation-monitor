@@ -1,0 +1,471 @@
+"""
+GDELT Service - Fetches conflict events, attack reports, and missile events
+from the GDELT Project API v2 (DOC and GEO endpoints).
+"""
+
+import hashlib
+import logging
+import re
+from datetime import datetime, timezone
+from typing import Optional
+
+import httpx
+from cachetools import TTLCache
+
+from config import settings
+from models import GeoEvent, MissileEvent
+
+logger = logging.getLogger(__name__)
+
+_conflict_cache: TTLCache = TTLCache(maxsize=1, ttl=settings.CACHE_TTL_CONFLICTS)
+_missile_cache: TTLCache = TTLCache(maxsize=1, ttl=settings.CACHE_TTL_MISSILES)
+_geo_cache: TTLCache = TTLCache(maxsize=1, ttl=settings.CACHE_TTL_CONFLICTS)
+
+MISSILE_KEYWORDS = re.compile(
+    r"\b(missile|rocket|projectile|ballistic|cruise missile|drone strike|"
+    r"intercepted|iron dome|patriot|s-300|s-400|hypersonic|icbm|scud|"
+    r"houthi.*attack|shahab|fateh|qiam|zolfaghar|emad)\b",
+    re.IGNORECASE,
+)
+
+CONFLICT_KEYWORDS = (
+    "conflict OR attack OR missile OR airstrike OR bombing OR "
+    "military strike OR shelling OR drone strike OR rocket"
+)
+
+
+def _generate_id(text: str) -> str:
+    """Generate a deterministic short ID from text content."""
+    return hashlib.md5(text.encode("utf-8", errors="replace")).hexdigest()[:12]
+
+
+def _severity_from_tone(tone: Optional[float]) -> str:
+    """Derive severity from GDELT tone score (negative = more severe)."""
+    if tone is None:
+        return "medium"
+    if tone < -8:
+        return "critical"
+    if tone < -5:
+        return "high"
+    if tone < -2:
+        return "medium"
+    return "low"
+
+
+def _parse_gdelt_date(date_str: str) -> datetime:
+    """Parse GDELT date string to datetime."""
+    try:
+        if len(date_str) == 14:
+            return datetime.strptime(date_str, "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
+        elif len(date_str) == 8:
+            return datetime.strptime(date_str, "%Y%m%d").replace(tzinfo=timezone.utc)
+        else:
+            return datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return datetime.now(timezone.utc)
+
+
+async def get_conflicts() -> list[GeoEvent]:
+    """
+    Fetch conflict and attack events from GDELT DOC API and GEO API.
+    Returns parsed GeoEvent models with location data.
+    """
+    cache_key = "conflicts"
+    if cache_key in _conflict_cache:
+        logger.debug("Returning cached conflict data")
+        return _conflict_cache[cache_key]
+
+    events: list[GeoEvent] = []
+
+    # Fetch from GDELT DOC API
+    doc_events = await _fetch_gdelt_doc_events()
+    events.extend(doc_events)
+
+    # Fetch from GDELT GEO API for additional geolocated events
+    geo_events = await _fetch_gdelt_geo_events()
+    events.extend(geo_events)
+
+    # Deduplicate by ID
+    seen_ids: set[str] = set()
+    unique_events: list[GeoEvent] = []
+    for event in events:
+        if event.id not in seen_ids:
+            seen_ids.add(event.id)
+            unique_events.append(event)
+
+    _conflict_cache[cache_key] = unique_events
+    logger.info("Fetched %d conflict events from GDELT", len(unique_events))
+    return unique_events
+
+
+async def _fetch_gdelt_doc_events() -> list[GeoEvent]:
+    """Fetch from GDELT DOC API and extract geolocated conflict events."""
+    events: list[GeoEvent] = []
+    params = {
+        "query": f"({CONFLICT_KEYWORDS}) near:middleeast",
+        "mode": "artlist",
+        "maxrecords": "100",
+        "format": "json",
+        "sort": "datedesc",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT) as client:
+            response = await client.get(settings.GDELT_DOC_API, params=params)
+            response.raise_for_status()
+            data = response.json()
+
+            articles = data.get("articles", [])
+            for article in articles:
+                title = article.get("title", "")
+                url = article.get("url", "")
+                seendate = article.get("seendate", "")
+                source = article.get("domain", "")
+                language = article.get("language", "")
+                socialimage = article.get("socialimage", "")
+                tone = article.get("tone", None)
+
+                # GDELT DOC API articles may not always have direct lat/lon.
+                # We attempt to extract from the URL/source or use GDELT GEO for coords.
+                # For DOC results, set approximate coords from context if available.
+                lat = article.get("latitude", None)
+                lon = article.get("longitude", None)
+
+                # If no coordinates in article, try to infer from country mention
+                if lat is None or lon is None:
+                    coords = _infer_coordinates_from_text(title)
+                    if coords:
+                        lat, lon = coords
+                    else:
+                        continue  # Skip events without coordinates
+
+                tone_val = None
+                if tone is not None:
+                    try:
+                        if isinstance(tone, str):
+                            tone_val = float(tone.split(",")[0]) if "," in tone else float(tone)
+                        else:
+                            tone_val = float(tone)
+                    except (ValueError, TypeError):
+                        tone_val = None
+
+                event_id = _generate_id(f"{url}{seendate}")
+                timestamp = _parse_gdelt_date(seendate) if seendate else datetime.now(timezone.utc)
+
+                events.append(GeoEvent(
+                    id=f"gdelt-doc-{event_id}",
+                    type="conflict",
+                    lat=lat,
+                    lon=lon,
+                    title=title,
+                    description=f"Source: {source}",
+                    severity=_severity_from_tone(tone_val),
+                    source=f"GDELT/{source}",
+                    timestamp=timestamp,
+                    metadata={
+                        "url": url,
+                        "language": language,
+                        "image": socialimage,
+                        "tone": tone_val,
+                    },
+                ))
+
+    except httpx.HTTPStatusError as e:
+        logger.error("GDELT DOC API HTTP error: %s", e.response.status_code)
+    except httpx.RequestError as e:
+        logger.error("GDELT DOC API request error: %s", str(e))
+    except Exception as e:
+        logger.error("GDELT DOC API unexpected error: %s", str(e))
+
+    return events
+
+
+async def _fetch_gdelt_geo_events() -> list[GeoEvent]:
+    """Fetch from GDELT GEO API for geolocated conflict events."""
+    cache_key = "geo_events"
+    if cache_key in _geo_cache:
+        return _geo_cache[cache_key]
+
+    events: list[GeoEvent] = []
+    params = {
+        "query": "conflict OR attack OR military OR bombing OR airstrike",
+        "format": "GeoJSON",
+        "timespan": "7d",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT) as client:
+            response = await client.get(settings.GDELT_GEO_API, params=params)
+            response.raise_for_status()
+            data = response.json()
+
+            features = data.get("features", [])
+            for feature in features:
+                props = feature.get("properties", {})
+                geometry = feature.get("geometry", {})
+                coords = geometry.get("coordinates", [])
+
+                if len(coords) < 2:
+                    continue
+
+                lon, lat = coords[0], coords[1]
+
+                # Filter to Middle East bounding box
+                if not (settings.ME_LAT_MIN <= lat <= settings.ME_LAT_MAX and
+                        settings.ME_LON_MIN <= lon <= settings.ME_LON_MAX):
+                    continue
+
+                name = props.get("name", "Unknown Event")
+                url = props.get("url", "")
+                html = props.get("html", "")
+                count = props.get("count", 0)
+                shareimage = props.get("shareimage", "")
+
+                event_id = _generate_id(f"{name}{lat}{lon}")
+
+                # Determine severity from event count
+                if count > 50:
+                    severity = "critical"
+                elif count > 20:
+                    severity = "high"
+                elif count > 5:
+                    severity = "medium"
+                else:
+                    severity = "low"
+
+                events.append(GeoEvent(
+                    id=f"gdelt-geo-{event_id}",
+                    type="conflict",
+                    lat=lat,
+                    lon=lon,
+                    title=name,
+                    description=f"Reported in {count} articles",
+                    severity=severity,
+                    source="GDELT GEO",
+                    timestamp=datetime.now(timezone.utc),
+                    metadata={
+                        "url": url,
+                        "html": html[:500] if html else "",
+                        "count": count,
+                        "image": shareimage,
+                    },
+                ))
+
+            _geo_cache[cache_key] = events
+
+    except httpx.HTTPStatusError as e:
+        logger.error("GDELT GEO API HTTP error: %s", e.response.status_code)
+    except httpx.RequestError as e:
+        logger.error("GDELT GEO API request error: %s", str(e))
+    except Exception as e:
+        logger.error("GDELT GEO API unexpected error: %s", str(e))
+
+    return events
+
+
+async def get_missile_events() -> list[MissileEvent]:
+    """
+    Extract missile/rocket events from GDELT data.
+    Searches for articles mentioning missiles, rockets, projectiles.
+    """
+    cache_key = "missiles"
+    if cache_key in _missile_cache:
+        logger.debug("Returning cached missile data")
+        return _missile_cache[cache_key]
+
+    missile_events: list[MissileEvent] = []
+
+    params = {
+        "query": (
+            "(missile OR rocket OR projectile OR ballistic OR drone strike OR "
+            "intercepted OR iron dome OR cruise missile) near:middleeast"
+        ),
+        "mode": "artlist",
+        "maxrecords": "75",
+        "format": "json",
+        "sort": "datedesc",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT) as client:
+            response = await client.get(settings.GDELT_DOC_API, params=params)
+            response.raise_for_status()
+            data = response.json()
+
+            articles = data.get("articles", [])
+            for article in articles:
+                title = article.get("title", "")
+                url = article.get("url", "")
+                seendate = article.get("seendate", "")
+                source = article.get("domain", "")
+
+                # Only include if title matches missile keywords
+                if not MISSILE_KEYWORDS.search(title):
+                    continue
+
+                # Try to get coordinates
+                lat = article.get("latitude", None)
+                lon = article.get("longitude", None)
+
+                if lat is None or lon is None:
+                    coords = _infer_coordinates_from_text(title)
+                    if coords:
+                        lat, lon = coords
+
+                event_id = _generate_id(f"missile-{url}{seendate}")
+                timestamp = _parse_gdelt_date(seendate) if seendate else datetime.now(timezone.utc)
+
+                # Determine missile type from title
+                missile_type = _classify_missile_type(title)
+                status = _classify_missile_status(title)
+
+                missile_events.append(MissileEvent(
+                    id=f"missile-{event_id}",
+                    launch_lat=lat,
+                    launch_lon=lon,
+                    target_lat=None,
+                    target_lon=None,
+                    missile_type=missile_type,
+                    status=status,
+                    source=f"GDELT/{source}",
+                    title=title,
+                    description=f"Source: {source}",
+                    timestamp=timestamp,
+                    metadata={"url": url},
+                ))
+
+    except httpx.HTTPStatusError as e:
+        logger.error("GDELT missile search HTTP error: %s", e.response.status_code)
+    except httpx.RequestError as e:
+        logger.error("GDELT missile search request error: %s", str(e))
+    except Exception as e:
+        logger.error("GDELT missile search unexpected error: %s", str(e))
+
+    _missile_cache[cache_key] = missile_events
+    logger.info("Extracted %d missile events from GDELT", len(missile_events))
+    return missile_events
+
+
+def _classify_missile_type(text: str) -> str:
+    """Classify the type of missile/projectile from text."""
+    text_lower = text.lower()
+    if "ballistic" in text_lower:
+        return "ballistic_missile"
+    if "cruise missile" in text_lower:
+        return "cruise_missile"
+    if "drone" in text_lower or "uav" in text_lower:
+        return "drone"
+    if "rocket" in text_lower:
+        return "rocket"
+    if "projectile" in text_lower:
+        return "projectile"
+    if "hypersonic" in text_lower:
+        return "hypersonic"
+    return "missile"
+
+
+def _classify_missile_status(text: str) -> str:
+    """Classify missile event status from text."""
+    text_lower = text.lower()
+    if any(w in text_lower for w in ["intercept", "iron dome", "shot down", "destroyed", "neutralized"]):
+        return "intercepted"
+    if any(w in text_lower for w in ["confirmed", "struck", "hit", "killed", "casualties"]):
+        return "confirmed"
+    return "reported"
+
+
+# Country/region to approximate coordinates mapping for Middle East
+_LOCATION_COORDS: dict[str, tuple[float, float]] = {
+    "iraq": (33.3, 44.4),
+    "baghdad": (33.3, 44.4),
+    "mosul": (36.3, 43.1),
+    "basra": (30.5, 47.8),
+    "erbil": (36.2, 44.0),
+    "syria": (34.8, 38.9),
+    "damascus": (33.5, 36.3),
+    "aleppo": (36.2, 37.2),
+    "idlib": (35.9, 36.6),
+    "deir ez-zor": (35.3, 40.1),
+    "raqqa": (35.9, 39.0),
+    "homs": (34.7, 36.7),
+    "iran": (32.4, 53.7),
+    "tehran": (35.7, 51.4),
+    "isfahan": (32.7, 51.7),
+    "tabriz": (38.1, 46.3),
+    "israel": (31.5, 34.8),
+    "tel aviv": (32.1, 34.8),
+    "jerusalem": (31.8, 35.2),
+    "gaza": (31.4, 34.4),
+    "gaza strip": (31.4, 34.4),
+    "west bank": (31.9, 35.3),
+    "haifa": (32.8, 35.0),
+    "beersheba": (31.3, 34.8),
+    "yemen": (15.6, 48.5),
+    "sanaa": (15.4, 44.2),
+    "aden": (12.8, 45.0),
+    "hodeidah": (14.8, 42.9),
+    "marib": (15.5, 45.3),
+    "saudi arabia": (23.9, 45.1),
+    "riyadh": (24.7, 46.7),
+    "jeddah": (21.5, 39.2),
+    "lebanon": (33.9, 35.5),
+    "beirut": (33.9, 35.5),
+    "turkey": (39.9, 32.9),
+    "ankara": (39.9, 32.9),
+    "istanbul": (41.0, 29.0),
+    "egypt": (30.0, 31.2),
+    "cairo": (30.0, 31.2),
+    "sinai": (29.5, 33.8),
+    "libya": (32.9, 13.2),
+    "tripoli": (32.9, 13.2),
+    "jordan": (31.9, 35.9),
+    "amman": (31.9, 35.9),
+    "afghanistan": (34.5, 69.2),
+    "kabul": (34.5, 69.2),
+    "kandahar": (31.6, 65.7),
+    "pakistan": (30.4, 69.3),
+    "islamabad": (33.7, 73.0),
+    "uae": (24.5, 54.4),
+    "abu dhabi": (24.5, 54.4),
+    "dubai": (25.2, 55.3),
+    "qatar": (25.3, 51.5),
+    "doha": (25.3, 51.5),
+    "bahrain": (26.0, 50.6),
+    "kuwait": (29.4, 48.0),
+    "oman": (23.6, 58.4),
+    "muscat": (23.6, 58.4),
+    "red sea": (20.0, 38.5),
+    "strait of hormuz": (26.6, 56.3),
+    "persian gulf": (27.0, 51.0),
+    "arabian sea": (15.0, 60.0),
+    "ukraine": (48.4, 31.2),
+    "kyiv": (50.4, 30.5),
+    "kharkiv": (49.9, 36.2),
+    "donbas": (48.0, 38.0),
+    "crimea": (45.3, 34.1),
+    "sudan": (15.6, 32.5),
+    "khartoum": (15.6, 32.5),
+    "somalia": (5.2, 46.2),
+    "mogadishu": (2.0, 45.3),
+    "palestine": (31.9, 35.2),
+    "rafah": (31.3, 34.2),
+    "khan younis": (31.3, 34.3),
+    "nablus": (32.2, 35.3),
+    "jenin": (32.5, 35.3),
+    "golan": (33.0, 35.8),
+    "golan heights": (33.0, 35.8),
+    "houthi": (15.4, 44.2),
+    "hezbollah": (33.9, 35.5),
+}
+
+
+def _infer_coordinates_from_text(text: str) -> Optional[tuple[float, float]]:
+    """Attempt to infer geographic coordinates from text by matching known locations."""
+    text_lower = text.lower()
+    # Try to match the most specific location first (cities before countries)
+    # Sort by length descending so longer names match first
+    sorted_locations = sorted(_LOCATION_COORDS.keys(), key=len, reverse=True)
+    for location in sorted_locations:
+        if location in text_lower:
+            return _LOCATION_COORDS[location]
+    return None
