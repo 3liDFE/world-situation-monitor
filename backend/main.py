@@ -28,12 +28,14 @@ from models import (
     NewsItem,
     NuclearSite,
     SystemStatus,
+    Vessel,
     Waterway,
     WeatherAlert,
     AIInsight,
 )
 from services import gdelt_service, opensky_service, usgs_service, weather_service
-from services import military_data, news_service, ai_service
+from services import military_data, news_service, ai_service, ais_service
+from services import database
 
 # ============================================================================
 # Logging configuration
@@ -61,6 +63,8 @@ _data_store: dict[str, object] = {
     "military_bases": [],
     "nuclear_sites": [],
     "waterways": [],
+    "vessels": [],
+    "military_vessels": [],
     "ai_insights": [],
     "last_update": {},
     "errors": [],
@@ -189,6 +193,13 @@ async def refresh_aircraft():
         _data_store["military_aircraft"] = mil_aircraft
         _data_store["last_update"]["aircraft"] = datetime.now(timezone.utc)
         await manager.broadcast("aircraft", aircraft)
+        # Persist position history for trails
+        try:
+            await database.store_aircraft_positions(
+                [_serialize(a) for a in aircraft if a.lat is not None]
+            )
+        except Exception:
+            pass
         logger.info(
             "Refreshed aircraft: %d total, %d military",
             len(aircraft), len(mil_aircraft)
@@ -260,6 +271,27 @@ async def refresh_ai_insights():
         _record_error(error_msg)
 
 
+async def refresh_vessels():
+    """Refresh vessel positions from AIS data."""
+    try:
+        vessels = await ais_service.get_vessels()
+        _data_store["vessels"] = vessels
+        _data_store["last_update"]["vessels"] = datetime.now(timezone.utc)
+        await manager.broadcast("vessels", vessels)
+        # Persist to database
+        try:
+            await database.store_vessel_positions(
+                [_serialize(v) for v in vessels]
+            )
+        except Exception:
+            pass
+        logger.info("Refreshed vessels: %d tracked", len(vessels))
+    except Exception as e:
+        error_msg = f"Failed to refresh vessels: {e}"
+        logger.error(error_msg)
+        _record_error(error_msg)
+
+
 def _record_error(msg: str):
     """Record an error message, keeping only last 50."""
     errors = _data_store.get("errors", [])
@@ -284,6 +316,7 @@ async def initial_data_load():
         refresh_conflicts(),
         refresh_missiles(),
         refresh_aircraft(),
+        refresh_vessels(),
         refresh_earthquakes(),
         refresh_weather(),
         refresh_news(),
@@ -309,6 +342,10 @@ async def lifespan(app: FastAPI):
     global _start_time
     _start_time = time.time()
 
+    # Initialize database
+    await database.init_db()
+    logger.info("Database initialized")
+
     # Initial data load
     await initial_data_load()
 
@@ -319,7 +356,14 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(refresh_earthquakes, "interval", seconds=settings.SCHEDULER_EARTHQUAKES, id="earthquakes")
     scheduler.add_job(refresh_weather, "interval", seconds=settings.SCHEDULER_WEATHER, id="weather")
     scheduler.add_job(refresh_news, "interval", seconds=settings.SCHEDULER_NEWS, id="news")
+    scheduler.add_job(refresh_vessels, "interval", seconds=30, id="vessels")
     scheduler.add_job(refresh_ai_insights, "interval", seconds=settings.SCHEDULER_AI_INSIGHTS, id="ai_insights")
+
+    # Daily database cleanup
+    scheduler.add_job(
+        lambda: asyncio.create_task(database.cleanup_old_data(7)),
+        "interval", hours=24, id="db_cleanup"
+    )
 
     scheduler.start()
     logger.info("Background scheduler started with %d jobs", len(scheduler.get_jobs()))
@@ -328,6 +372,7 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     scheduler.shutdown(wait=False)
+    await database.close_db()
     logger.info("Application shutdown complete.")
 
 
@@ -393,16 +438,39 @@ async def get_aircraft(
     return data
 
 
-@app.get("/api/vessels", response_model=list, tags=["Tracking"])
-async def get_vessels():
-    """
-    Get naval vessel positions.
-    Note: AIS vessel tracking requires specialized data providers.
-    Returns available vessel data or empty list if no provider configured.
-    """
-    # Vessel tracking via AIS requires commercial APIs (MarineTraffic, VesselFinder, etc.)
-    # This endpoint is ready for integration when a data source is added.
-    return []
+@app.get("/api/vessels", response_model=list[Vessel], tags=["Tracking"])
+async def get_vessels(
+    military_only: bool = Query(False, description="Filter for military vessels only"),
+):
+    """Get vessel positions from AIS data and simulation."""
+    if military_only:
+        data = _data_store.get("military_vessels", [])
+        if not data:
+            data = await ais_service.get_military_vessels()
+        return data
+
+    data = _data_store.get("vessels", [])
+    if not data:
+        data = await ais_service.get_vessels()
+        _data_store["vessels"] = data
+    return data
+
+
+@app.get("/api/aircraft/trails/{icao24}", tags=["Tracking"])
+async def get_aircraft_trail(icao24: str, limit: int = Query(50, le=200)):
+    """Get position history for a specific aircraft."""
+    trail = await database.get_aircraft_trails(icao24, limit=limit)
+    return trail
+
+
+@app.get("/api/historical/{layer}", tags=["Historical"])
+async def get_historical_data(
+    layer: str,
+    hours: int = Query(24, le=168, description="Hours of history to return"),
+):
+    """Get historical event counts for charts/trends."""
+    counts = await database.get_historical_counts(layer, hours=hours)
+    return counts
 
 
 @app.get("/api/missiles", response_model=list[MissileEvent], tags=["Events"])
@@ -523,6 +591,11 @@ async def get_all_layers():
                 "military_count": len(_data_store.get("military_aircraft", [])),
                 "data": _serialize(_data_store.get("aircraft", [])),
             },
+            "vessels": {
+                "type": "tracking",
+                "count": len(_data_store.get("vessels", [])),
+                "data": _serialize(_data_store.get("vessels", [])),
+            },
             "missiles": {
                 "type": "events",
                 "count": len(_data_store.get("missiles", [])),
@@ -579,7 +652,7 @@ async def get_status():
     last_update = _data_store.get("last_update", {})
 
     data_freshness = {}
-    for layer in ["conflicts", "aircraft", "missiles", "earthquakes", "weather", "news",
+    for layer in ["conflicts", "aircraft", "vessels", "missiles", "earthquakes", "weather", "news",
                   "military_bases", "nuclear_sites", "waterways", "ai_insights"]:
         ts = last_update.get(layer)
         data_freshness[layer] = ts
@@ -588,6 +661,7 @@ async def get_status():
         "conflicts": len(_data_store.get("conflicts", [])),
         "aircraft": len(_data_store.get("aircraft", [])),
         "military_aircraft": len(_data_store.get("military_aircraft", [])),
+        "vessels": len(_data_store.get("vessels", [])),
         "missiles": len(_data_store.get("missiles", [])),
         "earthquakes": len(_data_store.get("earthquakes", [])),
         "weather": len(_data_store.get("weather", [])),
@@ -646,7 +720,7 @@ async def websocket_endpoint(websocket: WebSocket):
             "type": "connected",
             "message": "Connected to World Situation Monitor live feed",
             "available_layers": [
-                "conflicts", "aircraft", "missiles", "earthquakes",
+                "conflicts", "aircraft", "vessels", "missiles", "earthquakes",
                 "weather", "news", "ai_insights", "all"
             ],
             "timestamp": datetime.now(timezone.utc).isoformat(),

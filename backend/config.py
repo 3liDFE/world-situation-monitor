@@ -19,6 +19,10 @@ class Settings:
     # API Keys (optional)
     NEWSDATA_API_KEY: str = os.getenv("NEWSDATA_API_KEY", "")
     ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
+    AISHUB_USERNAME: str = os.getenv("AISHUB_USERNAME", "")
+
+    # Database
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./wsm.db")
 
     # GDELT API
     GDELT_DOC_API: str = "https://api.gdeltproject.org/api/v2/doc/doc"

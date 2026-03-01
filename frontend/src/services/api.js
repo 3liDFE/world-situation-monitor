@@ -82,12 +82,17 @@ export async function fetchMilitaryBases() {
 
 /** Fetch known nuclear sites. */
 export async function fetchNuclearSites() {
-  return request('/api/nuclear-sites', {}, []);
+  return request('/api/nuclear', {}, []);
 }
 
 /** Fetch strategic waterways. */
 export async function fetchWaterways() {
   return request('/api/waterways', {}, []);
+}
+
+/** Fetch vessel positions. */
+export async function fetchVessels() {
+  return request('/api/vessels', {}, []);
 }
 
 /** Fetch news articles. Optional country filter. */
@@ -137,6 +142,7 @@ export default {
   fetchMilitaryBases,
   fetchNuclearSites,
   fetchWaterways,
+  fetchVessels,
   fetchNews,
   fetchLiveFeeds,
   fetchAIInsights,

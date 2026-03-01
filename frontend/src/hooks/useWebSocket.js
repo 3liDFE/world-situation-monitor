@@ -53,7 +53,7 @@ export default function useWebSocket(onMessage) {
         try {
           ws.send(JSON.stringify({
             action: 'subscribe',
-            layers: ['conflicts', 'aircraft', 'missiles', 'earthquakes', 'weather', 'news', 'ai_insights', 'all'],
+            layers: ['all'],
           }));
         } catch (e) {
           // Ignore send errors on fresh connections

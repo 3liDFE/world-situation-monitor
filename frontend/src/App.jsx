@@ -18,6 +18,7 @@ import {
   fetchMilitaryBases,
   fetchNuclearSites,
   fetchWaterways,
+  fetchVessels,
   fetchNews,
   fetchLiveFeeds,
   fetchAIInsights,
@@ -29,6 +30,7 @@ const DEFAULT_LAYERS = new Set([
   'conflicts',
   'missiles',
   'aircraft',
+  'naval',
   'militaryBases',
   'nuclearSites',
   'waterways',
@@ -57,6 +59,7 @@ export default function App() {
   const [militaryBases, setMilitaryBases] = useState([]);
   const [nuclearSites, setNuclearSites] = useState([]);
   const [waterways, setWaterways] = useState([]);
+  const [vessels, setVessels] = useState([]);
   const [news, setNews] = useState([]);
   const [liveFeeds, setLiveFeeds] = useState([]);
   const [aiInsights, setAIInsights] = useState([]);
@@ -86,7 +89,7 @@ export default function App() {
     conflicts: conflicts.length,
     missiles: missiles.length,
     aircraft: aircraft.length,
-    naval: 0,
+    naval: vessels.length,
     militaryBases: militaryBases.length,
     nuclearSites: nuclearSites.length,
     waterways: waterways.length,
@@ -162,6 +165,14 @@ export default function App() {
     if (data && Array.isArray(data)) {
       setWaterways(data);
       updateFreshness('waterways');
+    }
+  }, []);
+
+  const loadVessels = useCallback(async () => {
+    const data = await fetchVessels();
+    if (data && Array.isArray(data)) {
+      setVessels(data);
+      updateFreshness('vessels');
     }
   }, []);
 
@@ -257,6 +268,12 @@ export default function App() {
           updateFreshness('news');
         }
         break;
+      case 'vessels':
+        if (Array.isArray(payload)) {
+          setVessels(payload);
+          updateFreshness('vessels');
+        }
+        break;
       case 'ai_insights':
         if (Array.isArray(payload)) {
           setAIInsights(payload);
@@ -278,7 +295,7 @@ export default function App() {
   // =============================================
 
   useEffect(() => {
-    // Initial fetch - all data
+    // Initial fetch via HTTP - one-time load, then WebSocket takes over
     loadConflicts();
     loadAircraft();
     loadMissiles();
@@ -287,27 +304,18 @@ export default function App() {
     loadMilitaryBases();
     loadNuclearSites();
     loadWaterways();
+    loadVessels();
     loadNews();
     loadLiveFeeds();
     loadAIInsights();
     loadStatus();
 
-    // Set up polling intervals
-    const intervals = [
-      setInterval(loadConflicts, 60000),     // 60s
-      setInterval(loadAircraft, 10000),       // 10s
-      setInterval(loadMissiles, 30000),       // 30s
-      setInterval(loadEarthquakes, 300000),   // 5min
-      setInterval(loadWeather, 600000),       // 10min
-      setInterval(loadNews, 120000),          // 2min
-      setInterval(loadAIInsights, 300000),    // 5min
-      setInterval(loadStatus, 30000),         // 30s
-    ];
-
-    intervalsRef.current = intervals;
+    // Only poll system status (lightweight health check) - everything else is WebSocket-driven
+    const statusInterval = setInterval(loadStatus, 30000);
+    intervalsRef.current = [statusInterval];
 
     return () => {
-      intervals.forEach(clearInterval);
+      intervalsRef.current.forEach(clearInterval);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -413,6 +421,7 @@ export default function App() {
         militaryBases={militaryBases}
         nuclearSites={nuclearSites}
         waterways={waterways}
+        vessels={vessels}
         selectedEvent={selectedEvent}
         onEventClick={handleMapEvent}
         onMapReady={handleMapReady}

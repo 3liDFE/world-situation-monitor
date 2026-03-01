@@ -754,6 +754,36 @@ export function waterwaysToGeoJSON(waterways) {
 }
 
 /**
+ * Convert vessels to GeoJSON FeatureCollection.
+ */
+export function vesselsToGeoJSON(vessels) {
+  return {
+    type: 'FeatureCollection',
+    features: (vessels || [])
+      .filter((v) => v.lat != null && v.lon != null && (v.lat !== 0 || v.lon !== 0))
+      .map((v) => ({
+        type: 'Feature',
+        geometry: {
+          type: 'Point',
+          coordinates: [v.lon, v.lat],
+        },
+        properties: {
+          mmsi: v.mmsi,
+          name: v.name || 'Unknown Vessel',
+          title: v.name || v.mmsi,
+          type: 'vessel',
+          vessel_type: v.vessel_type || '',
+          flag: v.flag || '',
+          speed: v.speed || 0,
+          course: v.course || 0,
+          destination: v.destination || '',
+          description: `${v.vessel_type || 'Vessel'} | Flag: ${v.flag || 'Unknown'} | Dest: ${v.destination || 'N/A'}`,
+        },
+      })),
+  };
+}
+
+/**
  * Empty GeoJSON FeatureCollection.
  */
 export const EMPTY_GEOJSON = {

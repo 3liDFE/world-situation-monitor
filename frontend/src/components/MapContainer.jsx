@@ -28,6 +28,7 @@ import {
   militaryBasesToGeoJSON,
   nuclearSitesToGeoJSON,
   waterwaysToGeoJSON,
+  vesselsToGeoJSON,
   generateArcPoints,
 } from '../utils/mapStyle';
 
@@ -38,6 +39,7 @@ const SOURCES = {
   missileArcs: 'missile-arcs-source',
   aircraft: 'aircraft-source',
   aircraftTrails: 'aircraft-trails-source',
+  vessels: 'vessels-source',
   earthquakes: 'earthquakes-source',
   weather: 'weather-source',
   militaryBases: 'military-bases-source',
@@ -56,6 +58,8 @@ const LAYERS = {
   aircraftTrails: 'aircraft-trails-layer',
   aircraftIcon: 'aircraft-icon-layer',
   aircraftLabels: 'aircraft-labels-layer',
+  vesselsIcon: 'vessels-icon-layer',
+  vesselsLabels: 'vessels-labels-layer',
   earthquakeCircle: 'earthquakes-circle-layer',
   earthquakeGlow: 'earthquakes-glow-layer',
   weatherIcon: 'weather-icon-layer',
@@ -74,6 +78,7 @@ const LAYER_GROUP_MAP = {
   conflicts: [LAYERS.conflictsGlow, LAYERS.conflictsCircle, LAYERS.conflictsIcon],
   missiles: [LAYERS.missilePoints, LAYERS.missileArcs, LAYERS.missileIcons],
   aircraft: [LAYERS.aircraftTrails, LAYERS.aircraftIcon, LAYERS.aircraftLabels],
+  naval: [LAYERS.vesselsIcon, LAYERS.vesselsLabels],
   earthquakes: [LAYERS.earthquakeCircle, LAYERS.earthquakeGlow],
   weather: [LAYERS.weatherIcon, LAYERS.weatherLabels],
   militaryBases: [LAYERS.militaryBasesIcon, LAYERS.militaryBasesLabels],
@@ -92,6 +97,7 @@ export default function MapContainer({
   militaryBases,
   nuclearSites,
   waterways,
+  vessels,
   selectedEvent,
   onEventClick,
   onMapReady,
@@ -163,6 +169,7 @@ export default function MapContainer({
       LAYERS.missileIcons,
       LAYERS.missilePoints,
       LAYERS.earthquakeCircle,
+      LAYERS.vesselsIcon,
       LAYERS.militaryBasesIcon,
       LAYERS.nuclearSitesIcon,
       LAYERS.weatherIcon,
@@ -574,6 +581,54 @@ export default function MapContainer({
       });
     }
 
+    // --- VESSELS ---
+    if (!map.getLayer(LAYERS.vesselsIcon)) {
+      map.addLayer({
+        id: LAYERS.vesselsIcon,
+        type: 'symbol',
+        source: SOURCES.vessels,
+        layout: {
+          'icon-image': 'ship-icon',
+          'icon-size': [
+            'interpolate', ['linear'], ['zoom'],
+            3, 0.5,
+            6, 0.75,
+            10, 1,
+          ],
+          'icon-rotate': ['get', 'course'],
+          'icon-rotation-alignment': 'map',
+          'icon-allow-overlap': true,
+          'icon-ignore-placement': true,
+        },
+        paint: {
+          'icon-opacity': 0.9,
+        },
+      });
+    }
+
+    if (!map.getLayer(LAYERS.vesselsLabels)) {
+      map.addLayer({
+        id: LAYERS.vesselsLabels,
+        type: 'symbol',
+        source: SOURCES.vessels,
+        layout: {
+          'text-field': ['get', 'name'],
+          'text-size': 10,
+          'text-font': ['Open Sans Regular', 'Arial Unicode MS Regular'],
+          'text-offset': [0, 1.4],
+          'text-anchor': 'top',
+          'text-allow-overlap': false,
+        },
+        paint: {
+          'text-color': LAYER_COLORS.naval,
+          'text-halo-color': '#0a0e17',
+          'text-halo-width': 1,
+          'text-opacity': 0.8,
+        },
+        minzoom: 7,
+      });
+    }
+
     // --- EARTHQUAKES ---
     if (!map.getLayer(LAYERS.earthquakeGlow)) {
       map.addLayer({
@@ -945,6 +1000,11 @@ export default function MapContainer({
     updateSource(SOURCES.waterways, waterwaysToGeoJSON(waterways));
   }, [waterways, updateSource]);
 
+  // Vessels
+  useEffect(() => {
+    updateSource(SOURCES.vessels, vesselsToGeoJSON(vessels));
+  }, [vessels, updateSource]);
+
   // =============================================
   // LAYER VISIBILITY
   // =============================================
@@ -1045,6 +1105,16 @@ function buildPopupHTML(props) {
         <div class="event-popup-meta-row"><span class="event-popup-meta-label">Temp:</span><span class="event-popup-meta-value">${props.temperature != null ? props.temperature + '\u00B0C' : 'N/A'}</span></div>
         <div class="event-popup-meta-row"><span class="event-popup-meta-label">Wind:</span><span class="event-popup-meta-value">${props.wind_speed != null ? props.wind_speed + ' m/s' : 'N/A'}</span></div>
         ${props.event ? `<div class="event-popup-meta-row"><span class="event-popup-meta-label">Event:</span><span class="event-popup-meta-value">${props.event}</span></div>` : ''}
+      `;
+      break;
+    case 'vessel':
+      meta = `
+        <div class="event-popup-meta-row"><span class="event-popup-meta-label">MMSI:</span><span class="event-popup-meta-value">${props.mmsi || 'N/A'}</span></div>
+        <div class="event-popup-meta-row"><span class="event-popup-meta-label">Type:</span><span class="event-popup-meta-value">${props.vessel_type || 'N/A'}</span></div>
+        <div class="event-popup-meta-row"><span class="event-popup-meta-label">Flag:</span><span class="event-popup-meta-value">${props.flag || 'N/A'}</span></div>
+        <div class="event-popup-meta-row"><span class="event-popup-meta-label">Speed:</span><span class="event-popup-meta-value">${props.speed != null ? props.speed + ' kn' : 'N/A'}</span></div>
+        <div class="event-popup-meta-row"><span class="event-popup-meta-label">Course:</span><span class="event-popup-meta-value">${props.course != null ? Math.round(props.course) + '\u00B0' : 'N/A'}</span></div>
+        ${props.destination ? `<div class="event-popup-meta-row"><span class="event-popup-meta-label">Destination:</span><span class="event-popup-meta-value">${props.destination}</span></div>` : ''}
       `;
       break;
     case 'waterway':
