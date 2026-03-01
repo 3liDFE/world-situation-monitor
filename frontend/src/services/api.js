@@ -118,6 +118,21 @@ export async function fetchAIInsights() {
   return request('/api/ai-insights', {}, []);
 }
 
+/** Fetch X/Twitter OSINT intelligence. */
+export async function fetchXIntelligence() {
+  return request('/api/osint/x', {}, []);
+}
+
+/** Fetch Telegram OSINT intelligence. */
+export async function fetchTelegramIntelligence() {
+  return request('/api/osint/telegram', {}, []);
+}
+
+/** Fetch other OSINT intelligence. */
+export async function fetchOtherOsint() {
+  return request('/api/osint/other', {}, []);
+}
+
 /** Fetch all layer data in a single batch request. */
 export async function fetchAllLayers() {
   return request('/api/layers/all', {}, null);
@@ -146,6 +161,9 @@ export default {
   fetchNews,
   fetchLiveFeeds,
   fetchAIInsights,
+  fetchXIntelligence,
+  fetchTelegramIntelligence,
+  fetchOtherOsint,
   fetchAllLayers,
   fetchStatus,
   fetchSanctions,

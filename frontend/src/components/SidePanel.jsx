@@ -19,10 +19,19 @@ import {
   MapPin,
   Globe,
   Tv,
+  Twitter,
+  MessageCircle,
+  Search,
+  Crosshair,
+  Hash,
+  Send,
 } from 'lucide-react';
 
 const TABS = [
   { id: 'feeds', label: 'Feeds', icon: Radio },
+  { id: 'x_intel', label: 'X Intel', icon: Twitter },
+  { id: 'telegram', label: 'Telegram', icon: Send },
+  { id: 'osint', label: 'OSINT', icon: Crosshair },
   { id: 'insights', label: 'AI Intel', icon: Brain },
   { id: 'news', label: 'News', icon: Newspaper },
   { id: 'alerts', label: 'Alerts', icon: Bell },
@@ -45,6 +54,9 @@ export default function SidePanel({
   liveFeeds,
   news,
   aiInsights,
+  xIntelligence = [],
+  telegramIntelligence = [],
+  osintOther = [],
   alerts,
 }) {
   const alertsRef = useRef(null);
@@ -121,6 +133,15 @@ export default function SidePanel({
               selectedCountry={selectedCountry}
               onCountryChange={onCountryChange}
             />
+          )}
+          {activeTab === 'x_intel' && (
+            <XIntelligenceTab posts={xIntelligence} />
+          )}
+          {activeTab === 'telegram' && (
+            <TelegramTab posts={telegramIntelligence} />
+          )}
+          {activeTab === 'osint' && (
+            <OsintTab posts={osintOther} />
           )}
           {activeTab === 'insights' && (
             <AIInsightsTab insights={aiInsights} />
@@ -408,6 +429,180 @@ function AlertsTab({ alerts: alertItems }) {
 }
 
 // =============================================
+// X (TWITTER) INTELLIGENCE TAB
+// =============================================
+
+function XIntelligenceTab({ posts }) {
+  if (posts.length === 0) {
+    return (
+      <div>
+        <LoadingSkeleton count={3} />
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ padding: '8px 12px', fontSize: 10, color: 'var(--text-dim)', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <Twitter size={12} style={{ color: '#1d9bf0' }} />
+        <span>OSINT accounts monitoring active conflicts</span>
+      </div>
+      {posts.map((post, idx) => (
+        <div
+          key={post.id || idx}
+          className="feed-item"
+          onClick={() => {
+            if (post.url) window.open(post.url, '_blank', 'noopener');
+          }}
+        >
+          <div className="feed-item-header">
+            <span className="feed-item-channel" style={{ color: '#1d9bf0' }}>
+              <Twitter size={12} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+              {post.channel}
+            </span>
+            <span className="feed-item-lang" style={{ fontSize: 9 }}>{post.handle}</span>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5, padding: '4px 0' }}>
+            {post.text}
+          </div>
+          <div className="feed-item-category">
+            {post.category && (
+              <span className={`badge badge-${getCategoryColor(post.category)}`} style={{ fontSize: 8, padding: '1px 5px', marginRight: 6 }}>
+                {post.category.toUpperCase()}
+              </span>
+            )}
+            <Clock size={9} style={{ marginRight: 3, verticalAlign: 'middle' }} />
+            {timeAgo(post.timestamp)}
+            {!post.verified && (
+              <span style={{ marginLeft: 8, fontSize: 9, color: 'var(--text-dim)', opacity: 0.6 }}>UNVERIFIED</span>
+            )}
+            <ExternalLink size={9} style={{ marginLeft: 'auto', verticalAlign: 'middle', opacity: 0.4 }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// =============================================
+// TELEGRAM INTELLIGENCE TAB
+// =============================================
+
+function TelegramTab({ posts }) {
+  if (posts.length === 0) {
+    return (
+      <div>
+        <LoadingSkeleton count={3} />
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ padding: '8px 12px', fontSize: 10, color: 'var(--text-dim)', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <Send size={12} style={{ color: '#27a7e7' }} />
+        <span>Public Telegram OSINT channels</span>
+      </div>
+      {posts.map((post, idx) => (
+        <div
+          key={post.id || idx}
+          className="feed-item"
+          onClick={() => {
+            if (post.url) window.open(post.url, '_blank', 'noopener');
+          }}
+        >
+          <div className="feed-item-header">
+            <span className="feed-item-channel" style={{ color: '#27a7e7' }}>
+              <Send size={12} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+              {post.channel}
+            </span>
+            <span className="feed-item-lang" style={{ fontSize: 9 }}>{post.handle}</span>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5, padding: '4px 0' }}>
+            {post.text && post.text.length > 300 ? post.text.substring(0, 300) + '...' : post.text}
+          </div>
+          <div className="feed-item-category">
+            {post.category && (
+              <span className={`badge badge-${getCategoryColor(post.category)}`} style={{ fontSize: 8, padding: '1px 5px', marginRight: 6 }}>
+                {post.category.toUpperCase()}
+              </span>
+            )}
+            <Clock size={9} style={{ marginRight: 3, verticalAlign: 'middle' }} />
+            {timeAgo(post.timestamp)}
+            {post.focus && (
+              <span style={{ marginLeft: 8, fontSize: 9, color: 'var(--text-dim)' }}>{post.focus}</span>
+            )}
+            <ExternalLink size={9} style={{ marginLeft: 'auto', verticalAlign: 'middle', opacity: 0.4 }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// =============================================
+// OTHER OSINT TAB
+// =============================================
+
+function OsintTab({ posts }) {
+  if (posts.length === 0) {
+    return (
+      <div>
+        <LoadingSkeleton count={3} />
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ padding: '8px 12px', fontSize: 10, color: 'var(--text-dim)', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <Crosshair size={12} style={{ color: '#22c55e' }} />
+        <span>SIGINT / IMINT / Maritime / Cyber Intelligence</span>
+      </div>
+      {posts.map((post, idx) => {
+        const isClassified = post.source === 'osint_brief';
+        return (
+          <div
+            key={post.id || idx}
+            className={`feed-item ${isClassified ? 'insight-card' : ''}`}
+            onClick={() => {
+              if (post.url) window.open(post.url, '_blank', 'noopener');
+            }}
+          >
+            <div className="feed-item-header">
+              <span className="feed-item-channel" style={{ color: isClassified ? '#22c55e' : '#a78bfa' }}>
+                {isClassified ? <Shield size={12} style={{ marginRight: 6, verticalAlign: 'middle' }} /> : <Search size={12} style={{ marginRight: 6, verticalAlign: 'middle' }} />}
+                {post.channel}
+              </span>
+              {post.classification && (
+                <span className="badge badge-info" style={{ fontSize: 8, padding: '1px 5px' }}>
+                  {post.classification}
+                </span>
+              )}
+            </div>
+            <div style={{ fontSize: 11, color: isClassified ? 'var(--text-primary)' : 'var(--text-secondary)', lineHeight: 1.5, padding: '4px 0', fontFamily: isClassified ? 'var(--font-mono)' : 'inherit' }}>
+              {post.text}
+            </div>
+            <div className="feed-item-category">
+              {post.category && (
+                <span className={`badge badge-${getCategoryColor(post.category)}`} style={{ fontSize: 8, padding: '1px 5px', marginRight: 6 }}>
+                  {post.category.toUpperCase()}
+                </span>
+              )}
+              <Clock size={9} style={{ marginRight: 3, verticalAlign: 'middle' }} />
+              {timeAgo(post.timestamp)}
+              {post.focus && (
+                <span style={{ marginLeft: 8, fontSize: 9, color: 'var(--text-dim)' }}>{post.focus}</span>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// =============================================
 // HELPER COMPONENTS
 // =============================================
 
@@ -510,6 +705,21 @@ function getAlertColor(severity) {
     case 'medium': return '#f59e0b';
     case 'low': return '#22c55e';
     default: return '#3b82f6';
+  }
+}
+
+function getCategoryColor(category) {
+  switch (category) {
+    case 'missile': return 'critical';
+    case 'strike': return 'high';
+    case 'drone': return 'high';
+    case 'nuclear': return 'critical';
+    case 'casualties': return 'critical';
+    case 'naval': return 'info';
+    case 'aviation': return 'info';
+    case 'military': return 'medium';
+    case 'diplomacy': return 'low';
+    default: return 'info';
   }
 }
 

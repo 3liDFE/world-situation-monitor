@@ -227,12 +227,13 @@ export default function MapContainer({
             offset: 12,
             className: 'aircraft-hover-popup',
           });
+          const acType = props.aircraft_type && props.aircraft_type !== 'Unknown' ? props.aircraft_type : '';
           hoverPopup
             .setLngLat(e.lngLat)
             .setHTML(
               `<div style="padding:4px 8px;font-size:11px;font-family:monospace;color:#06b6d4;">${callsign}${
                 props.origin_country ? ` (${props.origin_country})` : ''
-              }</div>`
+              }${acType ? `<br/><span style="color:#f59e0b;font-size:10px">${acType}</span>` : ''}</div>`
             )
             .addTo(map);
         }
@@ -564,7 +565,12 @@ export default function MapContainer({
         type: 'symbol',
         source: SOURCES.aircraft,
         layout: {
-          'text-field': ['get', 'callsign'],
+          'text-field': [
+            'case',
+            ['all', ['has', 'aircraft_type'], ['!=', ['get', 'aircraft_type'], ''], ['!=', ['get', 'aircraft_type'], 'Unknown']],
+            ['concat', ['get', 'callsign'], '\n', ['get', 'aircraft_type']],
+            ['get', 'callsign'],
+          ],
           'text-size': 10,
           'text-font': ['Open Sans Regular', 'Arial Unicode MS Regular'],
           'text-offset': [0, 1.6],
@@ -1065,10 +1071,13 @@ function buildPopupHTML(props) {
       meta = `
         <div class="event-popup-meta-row"><span class="event-popup-meta-label">Callsign:</span><span class="event-popup-meta-value">${props.callsign || 'N/A'}</span></div>
         <div class="event-popup-meta-row"><span class="event-popup-meta-label">ICAO24:</span><span class="event-popup-meta-value">${props.icao24 || 'N/A'}</span></div>
-        <div class="event-popup-meta-row"><span class="event-popup-meta-label">Altitude:</span><span class="event-popup-meta-value">${props.altitude ? Math.round(props.altitude) + ' m' : 'N/A'}</span></div>
-        <div class="event-popup-meta-row"><span class="event-popup-meta-label">Speed:</span><span class="event-popup-meta-value">${props.velocity ? Math.round(props.velocity) + ' m/s' : 'N/A'}</span></div>
+        ${props.aircraft_type && props.aircraft_type !== 'Unknown' ? `<div class="event-popup-meta-row"><span class="event-popup-meta-label">Type:</span><span class="event-popup-meta-value" style="color:#06b6d4;font-weight:600">${props.aircraft_type}</span></div>` : ''}
+        ${props.operator ? `<div class="event-popup-meta-row"><span class="event-popup-meta-label">Operator:</span><span class="event-popup-meta-value">${props.operator}</span></div>` : ''}
+        <div class="event-popup-meta-row"><span class="event-popup-meta-label">Altitude:</span><span class="event-popup-meta-value">${props.altitude ? Math.round(props.altitude) + ' m (' + Math.round(props.altitude * 3.281) + ' ft)' : 'N/A'}</span></div>
+        <div class="event-popup-meta-row"><span class="event-popup-meta-label">Speed:</span><span class="event-popup-meta-value">${props.velocity ? Math.round(props.velocity) + ' m/s (' + Math.round(props.velocity * 1.944) + ' kts)' : 'N/A'}</span></div>
         <div class="event-popup-meta-row"><span class="event-popup-meta-label">Heading:</span><span class="event-popup-meta-value">${props.heading ? Math.round(props.heading) + '\u00B0' : 'N/A'}</span></div>
         <div class="event-popup-meta-row"><span class="event-popup-meta-label">Country:</span><span class="event-popup-meta-value">${props.origin_country || 'N/A'}</span></div>
+        ${props.is_military === 'true' || props.is_military === true ? '<div class="event-popup-meta-row"><span class="event-popup-meta-label">Status:</span><span class="event-popup-meta-value" style="color:#ef4444;font-weight:600">MILITARY</span></div>' : ''}
       `;
       break;
     case 'missile_launch':

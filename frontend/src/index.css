@@ -733,19 +733,25 @@ html, body, #root {
   display: flex;
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.side-panel-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .side-panel-tab {
   flex: 1;
-  padding: 10px 4px;
+  padding: 8px 2px;
   background: none;
   border: none;
   color: var(--text-muted);
   font-family: var(--font-primary);
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.3px;
   cursor: pointer;
   transition: all var(--transition-fast);
   position: relative;
@@ -753,6 +759,8 @@ html, body, #root {
   flex-direction: column;
   align-items: center;
   gap: 2px;
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .side-panel-tab:hover {

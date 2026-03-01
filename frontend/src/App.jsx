@@ -22,6 +22,9 @@ import {
   fetchNews,
   fetchLiveFeeds,
   fetchAIInsights,
+  fetchXIntelligence,
+  fetchTelegramIntelligence,
+  fetchOtherOsint,
   fetchStatus,
 } from './services/api';
 
@@ -63,6 +66,9 @@ export default function App() {
   const [news, setNews] = useState([]);
   const [liveFeeds, setLiveFeeds] = useState([]);
   const [aiInsights, setAIInsights] = useState([]);
+  const [xIntelligence, setXIntelligence] = useState([]);
+  const [telegramIntelligence, setTelegramIntelligence] = useState([]);
+  const [osintOther, setOsintOther] = useState([]);
   const [alerts, setAlerts] = useState([]);
 
   // ----- UI state -----
@@ -199,6 +205,30 @@ export default function App() {
     }
   }, []);
 
+  const loadXIntelligence = useCallback(async () => {
+    const data = await fetchXIntelligence();
+    if (data && Array.isArray(data)) {
+      setXIntelligence(data);
+      updateFreshness('xIntelligence');
+    }
+  }, []);
+
+  const loadTelegramIntelligence = useCallback(async () => {
+    const data = await fetchTelegramIntelligence();
+    if (data && Array.isArray(data)) {
+      setTelegramIntelligence(data);
+      updateFreshness('telegramIntelligence');
+    }
+  }, []);
+
+  const loadOsintOther = useCallback(async () => {
+    const data = await fetchOtherOsint();
+    if (data && Array.isArray(data)) {
+      setOsintOther(data);
+      updateFreshness('osintOther');
+    }
+  }, []);
+
   const loadStatus = useCallback(async () => {
     const data = await fetchStatus();
     if (data) {
@@ -280,6 +310,24 @@ export default function App() {
           updateFreshness('aiInsights');
         }
         break;
+      case 'x_intelligence':
+        if (Array.isArray(payload)) {
+          setXIntelligence(payload);
+          updateFreshness('xIntelligence');
+        }
+        break;
+      case 'telegram_intelligence':
+        if (Array.isArray(payload)) {
+          setTelegramIntelligence(payload);
+          updateFreshness('telegramIntelligence');
+        }
+        break;
+      case 'osint_other':
+        if (Array.isArray(payload)) {
+          setOsintOther(payload);
+          updateFreshness('osintOther');
+        }
+        break;
       case 'alert':
         setAlerts((prev) => [payload, ...prev].slice(0, 100));
         break;
@@ -308,6 +356,9 @@ export default function App() {
     loadNews();
     loadLiveFeeds();
     loadAIInsights();
+    loadXIntelligence();
+    loadTelegramIntelligence();
+    loadOsintOther();
     loadStatus();
 
     // Only poll system status (lightweight health check) - everything else is WebSocket-driven
@@ -448,6 +499,9 @@ export default function App() {
         liveFeeds={liveFeeds}
         news={news}
         aiInsights={aiInsights}
+        xIntelligence={xIntelligence}
+        telegramIntelligence={telegramIntelligence}
+        osintOther={osintOther}
         alerts={alerts}
       />
     </div>

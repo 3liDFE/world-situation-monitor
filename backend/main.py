@@ -27,6 +27,7 @@ from models import (
     MissileEvent,
     NewsItem,
     NuclearSite,
+    OsintPost,
     SystemStatus,
     Vessel,
     Waterway,
@@ -35,7 +36,7 @@ from models import (
 )
 from services import gdelt_service, opensky_service, usgs_service, weather_service
 from services import military_data, news_service, ai_service, ais_service
-from services import database
+from services import database, osint_service, aircraft_db
 
 # ============================================================================
 # Logging configuration
@@ -66,6 +67,9 @@ _data_store: dict[str, object] = {
     "vessels": [],
     "military_vessels": [],
     "ai_insights": [],
+    "x_intelligence": [],
+    "telegram_intelligence": [],
+    "osint_other": [],
     "last_update": {},
     "errors": [],
 }
@@ -185,10 +189,22 @@ async def refresh_missiles():
 
 
 async def refresh_aircraft():
-    """Refresh aircraft positions from OpenSky."""
+    """Refresh aircraft positions from OpenSky with type identification."""
     try:
         aircraft = await opensky_service.get_aircraft()
         mil_aircraft = await opensky_service.get_military_aircraft()
+        # Enrich with aircraft type identification
+        try:
+            aircraft_dicts = [_serialize(a) for a in aircraft]
+            enriched = await aircraft_db.enrich_aircraft_list(aircraft_dicts)
+            # Update aircraft objects with type info
+            for ac, enriched_data in zip(aircraft, enriched):
+                ac.aircraft_type = enriched_data.get("aircraft_type", "")
+                ac.operator = enriched_data.get("operator", "")
+                ac.is_military = enriched_data.get("is_military", False)
+                ac.type_confidence = enriched_data.get("type_confidence", "")
+        except Exception as e:
+            logger.warning("Aircraft type enrichment failed: %s", e)
         _data_store["aircraft"] = aircraft
         _data_store["military_aircraft"] = mil_aircraft
         _data_store["last_update"]["aircraft"] = datetime.now(timezone.utc)
@@ -292,6 +308,42 @@ async def refresh_vessels():
         _record_error(error_msg)
 
 
+async def refresh_osint():
+    """Refresh OSINT intelligence from X, Telegram, and other sources."""
+    try:
+        x_intel = await osint_service.get_x_intelligence()
+        _data_store["x_intelligence"] = x_intel
+        _data_store["last_update"]["x_intelligence"] = datetime.now(timezone.utc)
+        await manager.broadcast("x_intelligence", x_intel)
+        logger.info("Refreshed X intelligence: %d posts", len(x_intel))
+    except Exception as e:
+        error_msg = f"Failed to refresh X intelligence: {e}"
+        logger.error(error_msg)
+        _record_error(error_msg)
+
+    try:
+        tg_intel = await osint_service.get_telegram_intelligence()
+        _data_store["telegram_intelligence"] = tg_intel
+        _data_store["last_update"]["telegram_intelligence"] = datetime.now(timezone.utc)
+        await manager.broadcast("telegram_intelligence", tg_intel)
+        logger.info("Refreshed Telegram intelligence: %d posts", len(tg_intel))
+    except Exception as e:
+        error_msg = f"Failed to refresh Telegram intelligence: {e}"
+        logger.error(error_msg)
+        _record_error(error_msg)
+
+    try:
+        other_intel = await osint_service.get_other_osint()
+        _data_store["osint_other"] = other_intel
+        _data_store["last_update"]["osint_other"] = datetime.now(timezone.utc)
+        await manager.broadcast("osint_other", other_intel)
+        logger.info("Refreshed other OSINT: %d items", len(other_intel))
+    except Exception as e:
+        error_msg = f"Failed to refresh other OSINT: {e}"
+        logger.error(error_msg)
+        _record_error(error_msg)
+
+
 def _record_error(msg: str):
     """Record an error message, keeping only last 50."""
     errors = _data_store.get("errors", [])
@@ -320,6 +372,7 @@ async def initial_data_load():
         refresh_earthquakes(),
         refresh_weather(),
         refresh_news(),
+        refresh_osint(),
     ]
     await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -358,6 +411,7 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(refresh_news, "interval", seconds=settings.SCHEDULER_NEWS, id="news")
     scheduler.add_job(refresh_vessels, "interval", seconds=30, id="vessels")
     scheduler.add_job(refresh_ai_insights, "interval", seconds=settings.SCHEDULER_AI_INSIGHTS, id="ai_insights")
+    scheduler.add_job(refresh_osint, "interval", seconds=300, id="osint")
 
     # Daily database cleanup
     scheduler.add_job(
@@ -570,6 +624,36 @@ async def get_ai_insights():
     return data
 
 
+@app.get("/api/osint/x", tags=["OSINT"])
+async def get_x_intelligence():
+    """Get intelligence from X/Twitter OSINT accounts."""
+    data = _data_store.get("x_intelligence", [])
+    if not data:
+        data = await osint_service.get_x_intelligence()
+        _data_store["x_intelligence"] = data
+    return data
+
+
+@app.get("/api/osint/telegram", tags=["OSINT"])
+async def get_telegram_intelligence():
+    """Get intelligence from public Telegram OSINT channels."""
+    data = _data_store.get("telegram_intelligence", [])
+    if not data:
+        data = await osint_service.get_telegram_intelligence()
+        _data_store["telegram_intelligence"] = data
+    return data
+
+
+@app.get("/api/osint/other", tags=["OSINT"])
+async def get_other_osint():
+    """Get intelligence from other OSINT sources (ReliefWeb, briefings)."""
+    data = _data_store.get("osint_other", [])
+    if not data:
+        data = await osint_service.get_other_osint()
+        _data_store["osint_other"] = data
+    return data
+
+
 @app.get("/api/all-layers", tags=["Combined"])
 async def get_all_layers():
     """
@@ -653,7 +737,8 @@ async def get_status():
 
     data_freshness = {}
     for layer in ["conflicts", "aircraft", "vessels", "missiles", "earthquakes", "weather", "news",
-                  "military_bases", "nuclear_sites", "waterways", "ai_insights"]:
+                  "military_bases", "nuclear_sites", "waterways", "ai_insights",
+                  "x_intelligence", "telegram_intelligence", "osint_other"]:
         ts = last_update.get(layer)
         data_freshness[layer] = ts
 
@@ -670,6 +755,9 @@ async def get_status():
         "nuclear_sites": len(_data_store.get("nuclear_sites", [])),
         "waterways": len(_data_store.get("waterways", [])),
         "ai_insights": len(_data_store.get("ai_insights", [])),
+        "x_intelligence": len(_data_store.get("x_intelligence", [])),
+        "telegram_intelligence": len(_data_store.get("telegram_intelligence", [])),
+        "osint_other": len(_data_store.get("osint_other", [])),
     }
 
     errors = _data_store.get("errors", [])
@@ -721,7 +809,8 @@ async def websocket_endpoint(websocket: WebSocket):
             "message": "Connected to World Situation Monitor live feed",
             "available_layers": [
                 "conflicts", "aircraft", "vessels", "missiles", "earthquakes",
-                "weather", "news", "ai_insights", "all"
+                "weather", "news", "ai_insights", "x_intelligence",
+                "telegram_intelligence", "osint_other", "all"
             ],
             "timestamp": datetime.now(timezone.utc).isoformat(),
         })

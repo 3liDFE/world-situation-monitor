@@ -37,6 +37,10 @@ class Aircraft(BaseModel):
     geo_altitude: Optional[float] = None
     squawk: Optional[str] = None
     last_contact: Optional[int] = None
+    aircraft_type: str = Field(default="", description="Identified aircraft type (e.g., F-16, C-17)")
+    operator: str = Field(default="", description="Aircraft operator (e.g., USAF, RAF)")
+    is_military: bool = False
+    type_confidence: str = Field(default="", description="Type identification confidence: high, medium, low")
 
 
 class Vessel(BaseModel):
@@ -172,6 +176,21 @@ class LiveFeed(BaseModel):
     stream_url: str
     language: str = ""
     category: str = Field(default="news", description="news, military, general")
+
+
+class OsintPost(BaseModel):
+    """OSINT intelligence post from X/Twitter, Telegram, or other sources."""
+    id: str
+    source: str = Field(description="x_twitter, telegram, osint_brief, reliefweb")
+    channel: str = ""
+    handle: str = ""
+    text: str = ""
+    timestamp: str = ""
+    url: str = ""
+    focus: str = ""
+    category: str = Field(default="general", description="missile, strike, drone, naval, aviation, etc.")
+    verified: bool = False
+    classification: str = Field(default="OSINT", description="Intelligence classification level")
 
 
 class SystemStatus(BaseModel):
