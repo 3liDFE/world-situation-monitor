@@ -41,9 +41,17 @@ const LAYER_CATEGORIES = [
     name: 'Military',
     color: '#8b5cf6',
     layers: [
-      { id: 'aircraft', name: 'Military Aircraft', icon: Plane, color: '#06b6d4' },
-      { id: 'naval', name: 'Naval Vessels', icon: Anchor, color: '#3b82f6' },
+      { id: 'militaryAircraft', name: 'Fighter Jets / Military', icon: Plane, color: '#ef4444' },
       { id: 'militaryBases', name: 'Military Bases', icon: Building2, color: '#8b5cf6' },
+    ],
+  },
+  {
+    id: 'tracking',
+    name: 'Tracking',
+    color: '#06b6d4',
+    layers: [
+      { id: 'commercialAircraft', name: 'Commercial Flights', icon: Plane, color: '#06b6d4' },
+      { id: 'naval', name: 'Naval Vessels', icon: Anchor, color: '#3b82f6' },
     ],
   },
   {
@@ -77,7 +85,7 @@ export default function LayerControl({
   onTogglePanel,
 }) {
   const [expandedCategories, setExpandedCategories] = useState(
-    new Set(['security', 'military', 'strategic', 'natural'])
+    new Set(['security', 'military', 'tracking', 'strategic', 'natural'])
   );
 
   const toggleCategory = (catId) => {

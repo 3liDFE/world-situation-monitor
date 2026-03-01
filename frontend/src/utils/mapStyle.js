@@ -19,6 +19,8 @@ export const LAYER_COLORS = {
   conflict: '#ef4444',
   missile: '#f97316',
   aircraft: '#06b6d4',
+  commercialAircraft: '#06b6d4',
+  militaryAircraft: '#ef4444',
   naval: '#3b82f6',
   militaryBase: '#8b5cf6',
   nuclear: '#eab308',
@@ -87,6 +89,56 @@ export function createAircraftIcon(size = 24, color = '#06b6d4') {
   ctx.moveTo(cx, cy - size * 0.3);
   ctx.lineTo(cx + size * 0.06, cy + size * 0.05);
   ctx.lineTo(cx - size * 0.06, cy + size * 0.05);
+  ctx.closePath();
+  ctx.fill();
+
+  return {
+    width: canvas.width,
+    height: canvas.height,
+    data: ctx.getImageData(0, 0, canvas.width, canvas.height).data,
+  };
+}
+
+/**
+ * Create a military aircraft icon (fighter jet / swept wing shape).
+ * Returns an ImageData-compatible object for map.addImage().
+ */
+export function createMilitaryAircraftIcon(size = 28, color = '#ef4444') {
+  const canvas = document.createElement('canvas');
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = size * ratio;
+  canvas.height = size * ratio;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(ratio, ratio);
+
+  const cx = size / 2;
+  const cy = size / 2;
+
+  // Fighter jet shape - swept wings
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - size * 0.44);       // nose
+  ctx.lineTo(cx + size * 0.08, cy - size * 0.1);
+  ctx.lineTo(cx + size * 0.42, cy + size * 0.05);  // right wing tip (swept)
+  ctx.lineTo(cx + size * 0.1, cy + size * 0.15);
+  ctx.lineTo(cx + size * 0.2, cy + size * 0.42);   // right tail
+  ctx.lineTo(cx, cy + size * 0.32);                  // tail center
+  ctx.lineTo(cx - size * 0.2, cy + size * 0.42);   // left tail
+  ctx.lineTo(cx - size * 0.1, cy + size * 0.15);
+  ctx.lineTo(cx - size * 0.42, cy + size * 0.05);  // left wing tip (swept)
+  ctx.lineTo(cx - size * 0.08, cy - size * 0.1);
+  ctx.closePath();
+
+  ctx.fillStyle = color;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 6;
+  ctx.fill();
+
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - size * 0.35);
+  ctx.lineTo(cx + size * 0.04, cy);
+  ctx.lineTo(cx - size * 0.04, cy);
   ctx.closePath();
   ctx.fill();
 
@@ -464,6 +516,10 @@ export function aircraftToGeoJSON(aircraft) {
           on_ground: a.on_ground || false,
           origin_country: a.origin_country || '',
           squawk: a.squawk || '',
+          aircraft_type: a.aircraft_type || '',
+          operator: a.operator || '',
+          is_military: a.is_military || false,
+          type_confidence: a.type_confidence || '',
           type: 'aircraft',
         },
       })),

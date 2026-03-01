@@ -32,7 +32,8 @@ import {
 const DEFAULT_LAYERS = new Set([
   'conflicts',
   'missiles',
-  'aircraft',
+  'commercialAircraft',
+  'militaryAircraft',
   'naval',
   'militaryBases',
   'nuclearSites',
@@ -94,7 +95,8 @@ export default function App() {
   const layerCounts = {
     conflicts: conflicts.length,
     missiles: missiles.length,
-    aircraft: aircraft.length,
+    commercialAircraft: aircraft.filter(a => !a.is_military).length,
+    militaryAircraft: aircraft.filter(a => a.is_military).length,
     naval: vessels.length,
     militaryBases: militaryBases.length,
     nuclearSites: nuclearSites.length,
@@ -397,7 +399,8 @@ export default function App() {
       new Set([
         'conflicts',
         'missiles',
-        'aircraft',
+        'commercialAircraft',
+        'militaryAircraft',
         'naval',
         'militaryBases',
         'nuclearSites',

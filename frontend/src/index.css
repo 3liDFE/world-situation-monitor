@@ -212,23 +212,68 @@ html, body, #root {
 .header-logo {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex-shrink: 0;
 }
 
-.header-logo .logo-icon {
+.logo-badge {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(6, 182, 212, 0.1);
+  border: 1.5px solid rgba(6, 182, 212, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.logo-badge .logo-icon {
   color: var(--accent-blue);
   filter: drop-shadow(0 0 6px var(--accent-blue-glow));
+  z-index: 1;
+}
+
+.logo-pulse {
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 1px solid var(--accent-blue);
+  opacity: 0;
+  animation: logoPulse 2.5s ease-out infinite;
+}
+
+@keyframes logoPulse {
+  0% { transform: scale(0.8); opacity: 0.6; }
+  100% { transform: scale(1.4); opacity: 0; }
+}
+
+.logo-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
 }
 
 .header-logo h1 {
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 2px;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 3px;
   text-transform: uppercase;
   color: var(--text-primary);
   text-shadow: 0 0 10px var(--accent-blue-glow);
   white-space: nowrap;
+  line-height: 1;
+  margin: 0;
+}
+
+.logo-subtitle {
+  font-size: 8px;
+  font-weight: 500;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  line-height: 1;
+  margin-top: 2px;
 }
 
 .header-status {
@@ -1350,7 +1395,16 @@ html, body, #root {
   }
 
   .header-logo h1 {
-    font-size: 11px;
-    letter-spacing: 1px;
+    font-size: 13px;
+    letter-spacing: 2px;
+  }
+
+  .logo-subtitle {
+    display: none;
+  }
+
+  .logo-badge {
+    width: 28px;
+    height: 28px;
   }
 }

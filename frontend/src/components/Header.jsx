@@ -71,8 +71,14 @@ export default function Header({
     <header className="header">
       {/* Logo */}
       <div className="header-logo">
-        <Globe size={18} className="logo-icon" />
-        <h1>World Situation Monitor</h1>
+        <div className="logo-badge">
+          <Globe size={16} className="logo-icon" />
+          <div className="logo-pulse" />
+        </div>
+        <div className="logo-text">
+          <h1>WSM</h1>
+          <span className="logo-subtitle">World Situation Monitor</span>
+        </div>
       </div>
 
       <div className="header-divider" />

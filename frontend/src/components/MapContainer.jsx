@@ -12,6 +12,7 @@ import {
   LAYER_COLORS,
   EMPTY_GEOJSON,
   createAircraftIcon,
+  createMilitaryAircraftIcon,
   createShipIcon,
   createBaseIcon,
   createNuclearIcon,
@@ -37,7 +38,8 @@ const SOURCES = {
   conflicts: 'conflicts-source',
   missiles: 'missiles-source',
   missileArcs: 'missile-arcs-source',
-  aircraft: 'aircraft-source',
+  commercialAircraft: 'commercial-aircraft-source',
+  militaryAircraft: 'military-aircraft-source',
   aircraftTrails: 'aircraft-trails-source',
   vessels: 'vessels-source',
   earthquakes: 'earthquakes-source',
@@ -56,8 +58,10 @@ const LAYERS = {
   missileArcs: 'missile-arcs-layer',
   missileIcons: 'missiles-icon-layer',
   aircraftTrails: 'aircraft-trails-layer',
-  aircraftIcon: 'aircraft-icon-layer',
-  aircraftLabels: 'aircraft-labels-layer',
+  commercialAircraftIcon: 'commercial-aircraft-icon-layer',
+  commercialAircraftLabels: 'commercial-aircraft-labels-layer',
+  militaryAircraftIcon: 'military-aircraft-icon-layer',
+  militaryAircraftLabels: 'military-aircraft-labels-layer',
   vesselsIcon: 'vessels-icon-layer',
   vesselsLabels: 'vessels-labels-layer',
   earthquakeCircle: 'earthquakes-circle-layer',
@@ -77,7 +81,8 @@ const LAYERS = {
 const LAYER_GROUP_MAP = {
   conflicts: [LAYERS.conflictsGlow, LAYERS.conflictsCircle, LAYERS.conflictsIcon],
   missiles: [LAYERS.missilePoints, LAYERS.missileArcs, LAYERS.missileIcons],
-  aircraft: [LAYERS.aircraftTrails, LAYERS.aircraftIcon, LAYERS.aircraftLabels],
+  commercialAircraft: [LAYERS.commercialAircraftIcon, LAYERS.commercialAircraftLabels, LAYERS.aircraftTrails],
+  militaryAircraft: [LAYERS.militaryAircraftIcon, LAYERS.militaryAircraftLabels],
   naval: [LAYERS.vesselsIcon, LAYERS.vesselsLabels],
   earthquakes: [LAYERS.earthquakeCircle, LAYERS.earthquakeGlow],
   weather: [LAYERS.weatherIcon, LAYERS.weatherLabels],
@@ -114,6 +119,7 @@ export default function MapContainer({
   const prevAircraftRef = useRef({}); // previous positions for interpolation
   const interpStartRef = useRef(0); // timestamp of last data update
   const missileAnimRef = useRef(null);
+  const prevMissileIdsRef = useRef(''); // track missile data changes to avoid re-animation
 
   // =============================================
   // MAP INITIALIZATION
@@ -165,7 +171,8 @@ export default function MapContainer({
     const interactiveLayers = [
       LAYERS.conflictsIcon,
       LAYERS.conflictsCircle,
-      LAYERS.aircraftIcon,
+      LAYERS.commercialAircraftIcon,
+      LAYERS.militaryAircraftIcon,
       LAYERS.missileIcons,
       LAYERS.missilePoints,
       LAYERS.earthquakeCircle,
@@ -214,36 +221,43 @@ export default function MapContainer({
       });
     });
 
-    // Aircraft callsign tooltip on hover
+    // Aircraft callsign tooltip on hover (works for both commercial and military)
     let hoverPopup = null;
-    map.on('mouseenter', LAYERS.aircraftIcon, (e) => {
-      if (e.features && e.features.length > 0) {
-        const props = e.features[0].properties;
-        const callsign = props.callsign || props.icao24 || '';
-        if (callsign) {
-          hoverPopup = new maplibregl.Popup({
-            closeButton: false,
-            closeOnClick: false,
-            offset: 12,
-            className: 'aircraft-hover-popup',
-          });
-          const acType = props.aircraft_type && props.aircraft_type !== 'Unknown' ? props.aircraft_type : '';
-          hoverPopup
-            .setLngLat(e.lngLat)
-            .setHTML(
-              `<div style="padding:4px 8px;font-size:11px;font-family:monospace;color:#06b6d4;">${callsign}${
-                props.origin_country ? ` (${props.origin_country})` : ''
-              }${acType ? `<br/><span style="color:#f59e0b;font-size:10px">${acType}</span>` : ''}</div>`
-            )
-            .addTo(map);
+    const aircraftHoverLayers = [LAYERS.commercialAircraftIcon, LAYERS.militaryAircraftIcon];
+    aircraftHoverLayers.forEach((layerId) => {
+      const isMilLayer = layerId === LAYERS.militaryAircraftIcon;
+      const hoverColor = isMilLayer ? '#ef4444' : '#06b6d4';
+      map.on('mouseenter', layerId, (e) => {
+        if (e.features && e.features.length > 0) {
+          const props = e.features[0].properties;
+          const callsign = props.callsign || props.icao24 || '';
+          if (callsign) {
+            if (hoverPopup) { hoverPopup.remove(); hoverPopup = null; }
+            hoverPopup = new maplibregl.Popup({
+              closeButton: false,
+              closeOnClick: false,
+              offset: 12,
+              className: 'aircraft-hover-popup',
+            });
+            const acType = props.aircraft_type && props.aircraft_type !== 'Unknown' ? props.aircraft_type : '';
+            const milTag = isMilLayer ? '<br/><span style="color:#ef4444;font-weight:bold;font-size:10px">MILITARY</span>' : '';
+            hoverPopup
+              .setLngLat(e.lngLat)
+              .setHTML(
+                `<div style="padding:4px 8px;font-size:11px;font-family:monospace;color:${hoverColor};">${callsign}${
+                  props.origin_country ? ` (${props.origin_country})` : ''
+                }${acType ? `<br/><span style="color:#f59e0b;font-size:10px">${acType}</span>` : ''}${milTag}</div>`
+              )
+              .addTo(map);
+          }
         }
-      }
-    });
-    map.on('mouseleave', LAYERS.aircraftIcon, () => {
-      if (hoverPopup) {
-        hoverPopup.remove();
-        hoverPopup = null;
-      }
+      });
+      map.on('mouseleave', layerId, () => {
+        if (hoverPopup) {
+          hoverPopup.remove();
+          hoverPopup = null;
+        }
+      });
     });
 
     return () => {
@@ -263,7 +277,8 @@ export default function MapContainer({
 
   function addCustomImages(map) {
     const icons = [
-      { id: 'aircraft-icon', fn: createAircraftIcon, args: [28, LAYER_COLORS.aircraft] },
+      { id: 'aircraft-icon', fn: createAircraftIcon, args: [28, LAYER_COLORS.commercialAircraft] },
+      { id: 'military-aircraft-icon', fn: createMilitaryAircraftIcon, args: [28, '#ef4444'] },
       { id: 'ship-icon', fn: createShipIcon, args: [22, LAYER_COLORS.naval] },
       { id: 'base-icon', fn: createBaseIcon, args: [24, LAYER_COLORS.militaryBase] },
       { id: 'nuclear-icon', fn: createNuclearIcon, args: [26, LAYER_COLORS.nuclear] },
@@ -529,12 +544,12 @@ export default function MapContainer({
       });
     }
 
-    // --- AIRCRAFT ---
-    if (!map.getLayer(LAYERS.aircraftIcon)) {
+    // --- COMMERCIAL AIRCRAFT ---
+    if (!map.getLayer(LAYERS.commercialAircraftIcon)) {
       map.addLayer({
-        id: LAYERS.aircraftIcon,
+        id: LAYERS.commercialAircraftIcon,
         type: 'symbol',
-        source: SOURCES.aircraft,
+        source: SOURCES.commercialAircraft,
         layout: {
           'icon-image': 'aircraft-icon',
           'icon-size': [
@@ -559,11 +574,11 @@ export default function MapContainer({
       });
     }
 
-    if (!map.getLayer(LAYERS.aircraftLabels)) {
+    if (!map.getLayer(LAYERS.commercialAircraftLabels)) {
       map.addLayer({
-        id: LAYERS.aircraftLabels,
+        id: LAYERS.commercialAircraftLabels,
         type: 'symbol',
-        source: SOURCES.aircraft,
+        source: SOURCES.commercialAircraft,
         layout: {
           'text-field': [
             'case',
@@ -578,12 +593,70 @@ export default function MapContainer({
           'text-allow-overlap': false,
         },
         paint: {
-          'text-color': LAYER_COLORS.aircraft,
+          'text-color': LAYER_COLORS.commercialAircraft,
           'text-halo-color': '#0a0e17',
           'text-halo-width': 1,
           'text-opacity': 0.8,
         },
         minzoom: 7,
+      });
+    }
+
+    // --- MILITARY AIRCRAFT ---
+    if (!map.getLayer(LAYERS.militaryAircraftIcon)) {
+      map.addLayer({
+        id: LAYERS.militaryAircraftIcon,
+        type: 'symbol',
+        source: SOURCES.militaryAircraft,
+        layout: {
+          'icon-image': 'military-aircraft-icon',
+          'icon-size': [
+            'interpolate', ['linear'], ['zoom'],
+            3, 0.55,
+            6, 0.8,
+            10, 1.1,
+          ],
+          'icon-rotate': ['get', 'heading'],
+          'icon-rotation-alignment': 'map',
+          'icon-allow-overlap': true,
+          'icon-ignore-placement': true,
+        },
+        paint: {
+          'icon-opacity': [
+            'case',
+            ['get', 'on_ground'],
+            0.5,
+            1.0,
+          ],
+        },
+      });
+    }
+
+    if (!map.getLayer(LAYERS.militaryAircraftLabels)) {
+      map.addLayer({
+        id: LAYERS.militaryAircraftLabels,
+        type: 'symbol',
+        source: SOURCES.militaryAircraft,
+        layout: {
+          'text-field': [
+            'case',
+            ['all', ['has', 'aircraft_type'], ['!=', ['get', 'aircraft_type'], ''], ['!=', ['get', 'aircraft_type'], 'Unknown']],
+            ['concat', ['get', 'callsign'], '\n', ['get', 'aircraft_type']],
+            ['get', 'callsign'],
+          ],
+          'text-size': 10,
+          'text-font': ['Open Sans Regular', 'Arial Unicode MS Regular'],
+          'text-offset': [0, 1.6],
+          'text-anchor': 'top',
+          'text-allow-overlap': false,
+        },
+        paint: {
+          'text-color': LAYER_COLORS.militaryAircraft,
+          'text-halo-color': '#0a0e17',
+          'text-halo-width': 1,
+          'text-opacity': 0.9,
+        },
+        minzoom: 6,
       });
     }
 
@@ -826,13 +899,18 @@ export default function MapContainer({
     updateSource(SOURCES.hotspots, geojson); // hotspot heatmap uses same data
   }, [conflicts, updateSource]);
 
-  // Aircraft -- smooth interpolation + trail lines
+  // Aircraft -- smooth interpolation + trail lines (split into commercial and military)
   useEffect(() => {
     if (!aircraft || aircraft.length === 0) {
-      updateSource(SOURCES.aircraft, aircraftToGeoJSON([]));
+      updateSource(SOURCES.commercialAircraft, aircraftToGeoJSON([]));
+      updateSource(SOURCES.militaryAircraft, aircraftToGeoJSON([]));
       updateSource(SOURCES.aircraftTrails, EMPTY_GEOJSON);
       return;
     }
+
+    // Split aircraft into commercial and military
+    const commercialAircraft = aircraft.filter(a => !a.is_military);
+    const militaryAircraftData = aircraft.filter(a => a.is_military);
 
     // Build prev/next position lookup
     const prevPositions = prevAircraftRef.current;
@@ -846,9 +924,9 @@ export default function MapContainer({
     interpStartRef.current = performance.now();
     const INTERP_DURATION = 5000; // 5s to match typical refresh interval
 
-    // Update trail history
+    // Update trail history (commercial only for trails)
     const history = aircraftHistoryRef.current;
-    aircraft.forEach((a) => {
+    commercialAircraft.forEach((a) => {
       if (a.lat == null || a.lon == null) return;
       if (!history[a.icao24]) history[a.icao24] = [];
       const trail = history[a.icao24];
@@ -860,7 +938,7 @@ export default function MapContainer({
     });
 
     // Prune history for aircraft no longer present
-    const activeIcaos = new Set(aircraft.filter((a) => a.lat != null && a.lon != null).map((a) => a.icao24));
+    const activeIcaos = new Set(commercialAircraft.filter((a) => a.lat != null && a.lon != null).map((a) => a.icao24));
     Object.keys(history).forEach((icao) => {
       if (!activeIcaos.has(icao)) delete history[icao];
     });
@@ -883,7 +961,7 @@ export default function MapContainer({
       const t = Math.min(elapsed / INTERP_DURATION, 1);
 
       // Interpolate positions between previous and new
-      const interpolated = aircraft.map((a) => {
+      const interpolatedCommercial = commercialAircraft.map((a) => {
         if (a.lat == null || a.lon == null) return a;
         const prev = prevPositions[a.icao24];
         if (prev) {
@@ -896,9 +974,27 @@ export default function MapContainer({
         return a;
       });
 
-      const source = map.getSource(SOURCES.aircraft);
-      if (source) {
-        source.setData(aircraftToGeoJSON(interpolated));
+      const interpolatedMilitary = militaryAircraftData.map((a) => {
+        if (a.lat == null || a.lon == null) return a;
+        const prev = prevPositions[a.icao24];
+        if (prev) {
+          return {
+            ...a,
+            lon: prev.lon + (a.lon - prev.lon) * t,
+            lat: prev.lat + (a.lat - prev.lat) * t,
+          };
+        }
+        return a;
+      });
+
+      const commSource = map.getSource(SOURCES.commercialAircraft);
+      if (commSource) {
+        commSource.setData(aircraftToGeoJSON(interpolatedCommercial));
+      }
+
+      const milSource = map.getSource(SOURCES.militaryAircraft);
+      if (milSource) {
+        milSource.setData(aircraftToGeoJSON(interpolatedMilitary));
       }
 
       if (t < 1) {
@@ -914,18 +1010,30 @@ export default function MapContainer({
     prevAircraftRef.current = nextPositions;
   }, [aircraft, updateSource]);
 
-  // Missiles -- animated arc drawing
+  // Missiles -- animated arc drawing (only re-animates when data actually changes)
   useEffect(() => {
     if (!missiles || missiles.length === 0) {
       updateSource(SOURCES.missiles, missilesToGeoJSON([]));
       updateSource(SOURCES.missileArcs, missileArcsToGeoJSON([]));
       if (missileAnimRef.current) cancelAnimationFrame(missileAnimRef.current);
+      prevMissileIdsRef.current = '';
       return;
     }
 
     updateSource(SOURCES.missiles, missilesToGeoJSON(missiles));
 
-    // Animate arcs -- progressively draw from launch to target
+    // Check if missile data actually changed (avoid re-animation glitch on same data)
+    const currentIds = missiles.map((m) => m.id).sort().join(',');
+    const dataChanged = currentIds !== prevMissileIdsRef.current;
+    prevMissileIdsRef.current = currentIds;
+
+    if (!dataChanged) {
+      // Same data -- just show full arcs, no animation restart
+      updateSource(SOURCES.missileArcs, missileArcsToGeoJSON(missiles));
+      return;
+    }
+
+    // New data arrived -- animate arcs progressively from launch to target
     const startTime = performance.now();
     const ANIM_DURATION = 3000; // 3 seconds to fully draw each arc
 
@@ -1067,19 +1175,24 @@ function buildPopupHTML(props) {
         ${props.radius ? `<div class="event-popup-meta-row"><span class="event-popup-meta-label">Radius:</span><span class="event-popup-meta-value">${props.radius} km</span></div>` : ''}
       `;
       break;
-    case 'aircraft':
+    case 'aircraft': {
+      const fr24Link = `https://www.flightradar24.com/${(props.callsign || props.icao24 || '').trim().toLowerCase()}`;
+      const isMil = props.is_military === 'true' || props.is_military === true;
+      const typeColor = isMil ? '#ef4444' : '#06b6d4';
       meta = `
         <div class="event-popup-meta-row"><span class="event-popup-meta-label">Callsign:</span><span class="event-popup-meta-value">${props.callsign || 'N/A'}</span></div>
         <div class="event-popup-meta-row"><span class="event-popup-meta-label">ICAO24:</span><span class="event-popup-meta-value">${props.icao24 || 'N/A'}</span></div>
-        ${props.aircraft_type && props.aircraft_type !== 'Unknown' ? `<div class="event-popup-meta-row"><span class="event-popup-meta-label">Type:</span><span class="event-popup-meta-value" style="color:#06b6d4;font-weight:600">${props.aircraft_type}</span></div>` : ''}
+        ${props.aircraft_type && props.aircraft_type !== 'Unknown' ? `<div class="event-popup-meta-row"><span class="event-popup-meta-label">Type:</span><span class="event-popup-meta-value" style="color:${typeColor};font-weight:600">${props.aircraft_type}</span></div>` : ''}
         ${props.operator ? `<div class="event-popup-meta-row"><span class="event-popup-meta-label">Operator:</span><span class="event-popup-meta-value">${props.operator}</span></div>` : ''}
         <div class="event-popup-meta-row"><span class="event-popup-meta-label">Altitude:</span><span class="event-popup-meta-value">${props.altitude ? Math.round(props.altitude) + ' m (' + Math.round(props.altitude * 3.281) + ' ft)' : 'N/A'}</span></div>
         <div class="event-popup-meta-row"><span class="event-popup-meta-label">Speed:</span><span class="event-popup-meta-value">${props.velocity ? Math.round(props.velocity) + ' m/s (' + Math.round(props.velocity * 1.944) + ' kts)' : 'N/A'}</span></div>
         <div class="event-popup-meta-row"><span class="event-popup-meta-label">Heading:</span><span class="event-popup-meta-value">${props.heading ? Math.round(props.heading) + '\u00B0' : 'N/A'}</span></div>
         <div class="event-popup-meta-row"><span class="event-popup-meta-label">Country:</span><span class="event-popup-meta-value">${props.origin_country || 'N/A'}</span></div>
-        ${props.is_military === 'true' || props.is_military === true ? '<div class="event-popup-meta-row"><span class="event-popup-meta-label">Status:</span><span class="event-popup-meta-value" style="color:#ef4444;font-weight:600">MILITARY</span></div>' : ''}
+        ${isMil ? '<div class="event-popup-meta-row"><span class="event-popup-meta-label">Status:</span><span class="event-popup-meta-value" style="color:#ef4444;font-weight:600">MILITARY</span></div>' : ''}
+        <div class="event-popup-meta-row" style="margin-top:6px"><a href="${fr24Link}" target="_blank" rel="noopener noreferrer" style="color:#06b6d4;text-decoration:underline;font-size:11px;font-family:monospace">Track on FlightRadar24</a></div>
       `;
       break;
+    }
     case 'missile_launch':
     case 'missile_target':
       meta = `
