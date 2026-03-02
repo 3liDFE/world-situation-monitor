@@ -27,6 +27,7 @@ import {
   Send,
   Server,
 } from 'lucide-react';
+import AdUnit from './AdUnit';
 
 const TABS = [
   { id: 'feeds', label: 'Feeds', icon: Radio },
@@ -163,6 +164,9 @@ export default function SidePanel({
           {activeTab === 'infra' && (
             <InfraTab outages={infraOutages} dataCenters={dataCenters} />
           )}
+
+          {/* Non-intrusive ad at bottom of feed content */}
+          <AdUnit format="banner" slot="side-panel-bottom" />
         </div>
       </div>
     </>

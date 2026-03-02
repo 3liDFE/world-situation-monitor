@@ -8,6 +8,7 @@ import {
   X, Shield, AlertTriangle, Building2, Atom, Crosshair,
   Newspaper, Globe, Users, Zap, ChevronDown, ChevronRight,
 } from 'lucide-react';
+import AdUnit from './AdUnit';
 
 // Curated alliance/relationship data
 const ALLIANCES = {
@@ -260,6 +261,9 @@ export default function CountryProfile({
               </>
             )}
           </CollapsibleSection>
+
+          {/* Non-intrusive ad at bottom of profile */}
+          <AdUnit format="rectangle" slot="country-profile" style={{ marginTop: '12px' }} />
         </div>
       </div>
     </div>

@@ -2028,3 +2028,35 @@ html, body, #root {
     height: 22px;
   }
 }
+
+/* ============================================
+   AD UNIT STYLES
+   Non-intrusive, theme-matched ad containers
+   ============================================ */
+
+.ad-unit-container {
+  margin: 12px 8px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-color);
+}
+
+.ad-unit-label {
+  font-size: 9px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 4px 8px 2px;
+  opacity: 0.6;
+}
+
+.ad-unit-container ins {
+  background: transparent !important;
+}
+
+/* Hide ad containers when ads fail to load or aren't configured */
+.ad-unit-container:empty,
+.ad-unit-container:has(ins[data-ad-status="unfilled"]) {
+  display: none;
+}
