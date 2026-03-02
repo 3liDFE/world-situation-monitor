@@ -534,6 +534,17 @@ export default function App() {
         initialView={REGION_PRESETS['Middle East']}
       />
 
+      {/* Mobile backdrop - tap to close panels */}
+      {(isLayerPanelOpen || isSidePanelOpen) && (
+        <div
+          className="mobile-backdrop"
+          onClick={() => {
+            setIsLayerPanelOpen(false);
+            setIsSidePanelOpen(false);
+          }}
+        />
+      )}
+
       <LayerControl
         activeLayers={activeLayers}
         onToggleLayer={toggleLayer}
@@ -541,14 +552,14 @@ export default function App() {
         onClearAll={clearAllLayers}
         layerCounts={layerCounts}
         isOpen={isLayerPanelOpen}
-        onTogglePanel={() => setIsLayerPanelOpen((v) => !v)}
+        onTogglePanel={() => { setIsLayerPanelOpen((v) => !v); setIsSidePanelOpen(false); }}
       />
 
       <SidePanel
         activeTab={sidePanel}
         onTabChange={setSidePanel}
         isOpen={isSidePanelOpen}
-        onTogglePanel={() => setIsSidePanelOpen((v) => !v)}
+        onTogglePanel={() => { setIsSidePanelOpen((v) => !v); setIsLayerPanelOpen(false); }}
         selectedCountry={selectedCountry}
         onCountryChange={setSelectedCountry}
         liveFeeds={liveFeeds}
