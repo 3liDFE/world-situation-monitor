@@ -392,6 +392,15 @@ async def get_missile_events() -> list[MissileEvent]:
     except Exception as e:
         logger.debug("GDELT missile fetch unavailable: %s", e)
 
+    # ALWAYS include curated baseline events (these have launch→target arcs for map)
+    curated = _get_curated_missile_events()
+    curated_titles = {m.title.lower()[:60] for m in curated}
+    # Add curated events that don't duplicate live ones
+    live_titles = {m.title.lower()[:60] for m in missile_events}
+    for cm in curated:
+        if cm.title.lower()[:60] not in live_titles:
+            missile_events.append(cm)
+
     # Deduplicate by ID
     seen_ids: set[str] = set()
     unique: list[MissileEvent] = []
@@ -401,8 +410,11 @@ async def get_missile_events() -> list[MissileEvent]:
             unique.append(m)
     missile_events = unique
 
+    # Sort by timestamp, newest first
+    missile_events.sort(key=lambda m: m.timestamp, reverse=True)
+
     _missile_cache[cache_key] = missile_events
-    logger.info("Extracted %d real missile/strike events from live news", len(missile_events))
+    logger.info("Extracted %d missile/strike events (live + curated baseline)", len(missile_events))
     return missile_events
 
 
@@ -676,6 +688,27 @@ _LOCATION_COORDS: dict[str, tuple[float, float]] = {
     "golan heights": (33.0, 35.8),
     "houthi": (15.4, 44.2),
     "hezbollah": (33.9, 35.5),
+    # Eastern Europe
+    "odesa": (46.5, 30.7),
+    "donetsk": (48.0, 37.8),
+    "zaporizhzhia": (47.8, 35.1),
+    "kherson": (46.6, 32.6),
+    "kursk": (51.7, 36.2),
+    "belgorod": (50.6, 36.6),
+    "moscow": (55.8, 37.6),
+    # Africa
+    "darfur": (13.5, 25.0),
+    "port sudan": (19.6, 37.2),
+    "mogadishu": (2.1, 45.3),
+    "tripoli libya": (32.9, 13.2),
+    "benghazi": (32.1, 20.1),
+    # Asia-Pacific
+    "taipei": (25.0, 121.6),
+    "taiwan": (23.7, 121.0),
+    "pyongyang": (39.0, 125.8),
+    "north korea": (40.3, 127.5),
+    "south china sea": (12.0, 114.0),
+    "myanmar": (19.8, 96.1),
 }
 
 

@@ -125,13 +125,21 @@ export default function App() {
     return false;
   };
 
-  // ----- Filtered data -----
-  const filteredConflicts = filterByTime(conflicts).filter(i => matchesSearch(i));
-  const filteredMissiles = filterByTime(missiles).filter(i => matchesSearch(i));
-  const filteredNews = filterByTime(news, 'published_at').filter(i => matchesSearch(i));
-  const filteredXIntel = filterByTime(xIntelligence).filter(i => matchesSearch(i));
-  const filteredTelegram = filterByTime(telegramIntelligence).filter(i => matchesSearch(i));
-  const filteredOsint = filterByTime(osintOther).filter(i => matchesSearch(i));
+  // ----- Sort helper (newest first) -----
+  const sortNewest = (items, key = 'timestamp') =>
+    [...items].sort((a, b) => {
+      const da = new Date(a[key] || 0).getTime();
+      const db = new Date(b[key] || 0).getTime();
+      return db - da;
+    });
+
+  // ----- Filtered data (always sorted newest first) -----
+  const filteredConflicts = sortNewest(filterByTime(conflicts).filter(i => matchesSearch(i)));
+  const filteredMissiles = sortNewest(filterByTime(missiles).filter(i => matchesSearch(i)));
+  const filteredNews = sortNewest(filterByTime(news, 'published_at').filter(i => matchesSearch(i)), 'published_at');
+  const filteredXIntel = sortNewest(filterByTime(xIntelligence).filter(i => matchesSearch(i)));
+  const filteredTelegram = sortNewest(filterByTime(telegramIntelligence).filter(i => matchesSearch(i)));
+  const filteredOsint = sortNewest(filterByTime(osintOther).filter(i => matchesSearch(i)));
 
   // ----- Layer counts for display -----
   const layerCounts = {

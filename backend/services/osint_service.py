@@ -201,28 +201,76 @@ async def get_telegram_intelligence() -> list[dict]:
 
 async def get_other_osint() -> list[dict]:
     """
-    Get intelligence from other OSINT sources (RSS feeds, conflict trackers, etc.)
+    Get intelligence from other OSINT sources (RSS feeds, conflict trackers, news-derived OSINT).
+    Covers global conflicts, not just Middle East.
     """
     cache_key = "other_osint"
     if cache_key in _osint_cache:
         return _osint_cache[cache_key]
 
     intel = []
+    existing_ids: set[str] = set()
 
-    # Try to fetch from ACLED-style conflict data RSS or other open sources
+    # 1. ReliefWeb conflict reports (global)
     try:
         rss_intel = await _fetch_conflict_rss()
-        intel.extend(rss_intel)
+        for item in rss_intel:
+            if item["id"] not in existing_ids:
+                existing_ids.add(item["id"])
+                intel.append(item)
     except Exception as e:
         logger.warning("Failed to fetch RSS intel: %s", e)
 
-    # Add curated SIGINT/HUMINT-style intelligence briefings
-    intel.extend(_get_curated_osint_briefings())
+    # 2. News-derived global OSINT (satellite/SIGINT/IMINT style analysis)
+    try:
+        from services.google_news_service import fetch_conflict_news, score_importance
+        news = await fetch_conflict_news(max_articles=60)
+
+        for article in news:
+            title = article.get("title", "")
+            importance = article.get("importance", score_importance(article))
+            if importance < 20:
+                continue
+
+            post_id = f"osint-{article.get('id', _generate_id(title))}"
+            if post_id in existing_ids:
+                continue
+            existing_ids.add(post_id)
+
+            location = article.get("location_name", "")
+            source = article.get("source", "")
+            event_type = article.get("event_type", "military")
+
+            # Classify as intelligence type
+            intel_type, channel_name = _classify_intel_type(title, event_type)
+
+            intel.append({
+                "id": post_id,
+                "source": "osint_brief",
+                "channel": channel_name,
+                "handle": "WSM Intelligence",
+                "text": f"{intel_type}: {title}" + (f" [{location}]" if location else ""),
+                "timestamp": article.get("published_at", ""),
+                "url": article.get("url", ""),
+                "focus": f"{location or 'Global'} intelligence",
+                "category": _categorize_post(title),
+                "classification": "OSINT",
+            })
+
+    except Exception as e:
+        logger.warning("News-derived OSINT failed: %s", e)
+
+    # 3. Curated SIGINT/HUMINT-style intelligence briefings (always present)
+    for brief in _get_curated_osint_briefings():
+        if brief["id"] not in existing_ids:
+            existing_ids.add(brief["id"])
+            intel.append(brief)
 
     intel.sort(key=lambda p: p.get("timestamp", ""), reverse=True)
-    intel = intel[:30]
+    intel = intel[:40]
 
     _osint_cache[cache_key] = intel
+    logger.info("OSINT Other: %d items (ReliefWeb + news-derived + curated)", len(intel))
     return intel
 
 
@@ -309,6 +357,26 @@ def _assign_osint_account(title: str, event_type: str) -> dict:
     if event_type in ("airstrike", "missile", "drone"):
         return {"name": "OSINTdefender", "handle": "@sentdefender", "focus": "Global military OSINT"}
     return {"name": "Intellipus", "handle": "@intellipus", "focus": "Middle East OSINT"}
+
+
+def _classify_intel_type(title: str, event_type: str) -> tuple[str, str]:
+    """Classify intelligence type and assign channel name for OSINT Other tab."""
+    t = title.lower()
+    if any(w in t for w in ["satellite", "imagery", "construction", "buildup", "deploy"]):
+        return "IMINT", "Imagery Analysis"
+    if any(w in t for w in ["intercept", "signal", "communication", "frequency", "radar"]):
+        return "SIGINT", "Signals Intelligence"
+    if any(w in t for w in ["maritime", "ship", "vessel", "port", "naval", "strait"]):
+        return "MARITIME INTEL", "Maritime Intelligence"
+    if any(w in t for w in ["cyber", "hack", "malware", "apt", "ransomware"]):
+        return "CYBER INTEL", "Cyber Threat Intel"
+    if any(w in t for w in ["nuclear", "enrichment", "iaea", "reactor"]):
+        return "NUCLEAR INTEL", "Nuclear Monitoring"
+    if event_type in ("missile", "airstrike", "drone"):
+        return "STRIKE REPORT", "Strike Analysis"
+    if any(w in t for w in ["sanction", "embargo", "diplomacy", "negotiation"]):
+        return "GEOPOLITICAL", "Geopolitical Analysis"
+    return "SITUATION REPORT", "Conflict Analysis"
 
 
 def _categorize_post(text: str) -> str:
@@ -711,15 +779,19 @@ async def _fetch_conflict_rss() -> list[dict]:
     # Try to fetch from Relief Web or similar open conflict data
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            # ReliefWeb API - recent conflict reports for Middle East
+            # ReliefWeb API - recent conflict reports (GLOBAL)
             response = await client.get(
                 "https://api.reliefweb.int/v1/reports",
                 params={
                     "appname": "wsm",
-                    "query[value]": "conflict military attack",
+                    "query[value]": "conflict military attack crisis",
                     "filter[field]": "primary_country.name",
-                    "filter[value][]": ["Iraq", "Syria", "Yemen", "Lebanon", "Iran", "Israel"],
-                    "limit": 15,
+                    "filter[value][]": [
+                        "Iraq", "Syria", "Yemen", "Lebanon", "Iran", "Israel",
+                        "Ukraine", "Sudan", "Somalia", "Libya", "Palestine",
+                        "Afghanistan", "Myanmar", "Ethiopia", "Democratic Republic of the Congo",
+                    ],
+                    "limit": 20,
                     "sort[]": "date:desc",
                     "fields[include][]": ["title", "date.original", "source.name", "url", "primary_country.name"],
                 }

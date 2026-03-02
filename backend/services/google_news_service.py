@@ -18,18 +18,31 @@ logger = logging.getLogger(__name__)
 
 _news_cache: TTLCache = TTLCache(maxsize=20, ttl=60)  # 60 second cache for live updates
 
-# Conflict-focused search queries for the Middle East
+# Conflict-focused search queries - GLOBAL coverage
 CONFLICT_QUERIES = [
+    # Middle East (primary focus)
     "Iran attack missile drone strike",
     "Israel military strike airstrike",
     "Houthi Red Sea attack shipping",
     "Syria airstrike bombing military",
     "Gaza military operation strike",
     "Lebanon Hezbollah rocket missile",
-    "UAE Iran drone missile",
     "Iraq militia attack base",
     "Yemen Saudi coalition strike",
-    "Middle East war conflict military",
+    # Eastern Europe
+    "Ukraine Russia war missile drone attack",
+    "Ukraine frontline military strike today",
+    # Africa
+    "Sudan war conflict military airstrike",
+    "Somalia al-Shabaab military attack",
+    "Libya conflict military forces",
+    # Asia-Pacific
+    "Taiwan China military tensions",
+    "North Korea missile launch test",
+    "Myanmar conflict military operation",
+    # Global military/security
+    "NATO military deployment forces",
+    "global conflict breaking military news",
 ]
 
 # Location keyword to coordinates mapping
@@ -80,6 +93,24 @@ LOCATION_COORDS: dict[str, tuple[float, float]] = {
     "afghanistan": (33.94, 67.71), "libya": (26.34, 17.23),
     "sudan": (12.86, 30.22), "ukraine": (48.38, 31.17),
     "crimea": (45.30, 34.10), "russia": (61.52, 105.32),
+    # Additional global locations
+    "kyiv": (50.45, 30.52), "kharkiv": (49.99, 36.23), "odesa": (46.48, 30.73),
+    "donetsk": (48.00, 37.80), "zaporizhzhia": (47.84, 35.14), "kherson": (46.64, 32.62),
+    "moscow": (55.76, 37.62), "kursk": (51.73, 36.19), "belgorod": (50.60, 36.59),
+    "khartoum": (15.59, 32.53), "darfur": (13.50, 25.00), "port sudan": (19.62, 37.22),
+    "mogadishu": (2.05, 45.32), "somalia": (5.15, 46.20),
+    "tripoli libya": (32.90, 13.19), "benghazi": (32.12, 20.09),
+    "taipei": (25.03, 121.57), "taiwan": (23.70, 120.96),
+    "pyongyang": (39.02, 125.75), "north korea": (40.34, 127.51),
+    "south korea": (35.91, 127.77), "seoul": (37.57, 126.98),
+    "myanmar": (19.76, 96.08), "naypyidaw": (19.76, 96.07), "mandalay": (21.97, 96.08),
+    "china": (35.86, 104.20), "beijing": (39.90, 116.40), "south china sea": (12.00, 114.00),
+    "niger": (17.61, 8.08), "mali": (17.57, -4.00), "burkina faso": (12.37, -1.52),
+    "ethiopia": (9.15, 40.49), "congo": (-4.44, 15.27), "mozambique": (-15.59, 35.24),
+    "nato": (50.88, 4.32), "brussels": (50.85, 4.35), "london": (51.51, -0.13),
+    "washington": (38.91, -77.04), "pentagon": (38.87, -77.06),
+    "japan": (36.20, 138.25), "india": (20.59, 78.96), "new delhi": (28.61, 77.21),
+    "philippines": (12.88, 121.77),
 }
 
 # Event type classification keywords
@@ -351,7 +382,10 @@ async def fetch_breaking_news(max_articles: int = 50) -> list[dict]:
         "Middle East breaking news today",
         "Iran war latest",
         "Israel Gaza Lebanon latest",
-        "Gulf crisis news",
+        "Ukraine Russia war latest news",
+        "global military conflict breaking news",
+        "Africa conflict war latest",
+        "Asia Pacific military tensions",
     ]
 
     async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
