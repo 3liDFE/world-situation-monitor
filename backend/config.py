@@ -53,7 +53,7 @@ class Settings:
     CACHE_TTL_AIRCRAFT: int = 10
     CACHE_TTL_EARTHQUAKES: int = 300
     CACHE_TTL_WEATHER: int = 600
-    CACHE_TTL_NEWS: int = 120
+    CACHE_TTL_NEWS: int = 60
     CACHE_TTL_MISSILES: int = 60
     CACHE_TTL_AI_INSIGHTS: int = 300
 
@@ -62,7 +62,7 @@ class Settings:
     SCHEDULER_AIRCRAFT: int = 5
     SCHEDULER_EARTHQUAKES: int = 300
     SCHEDULER_WEATHER: int = 600
-    SCHEDULER_NEWS: int = 120
+    SCHEDULER_NEWS: int = 60
     SCHEDULER_AI_INSIGHTS: int = 300
 
     # Major Middle East cities for weather tracking

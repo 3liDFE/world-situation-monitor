@@ -14,10 +14,10 @@ from cachetools import TTLCache
 
 logger = logging.getLogger(__name__)
 
-# Cache for 5 minutes
-_x_cache: TTLCache = TTLCache(maxsize=1, ttl=300)
-_telegram_cache: TTLCache = TTLCache(maxsize=1, ttl=300)
-_osint_cache: TTLCache = TTLCache(maxsize=1, ttl=300)
+# Cache for 60 seconds - fast refresh for live intel
+_x_cache: TTLCache = TTLCache(maxsize=1, ttl=60)
+_telegram_cache: TTLCache = TTLCache(maxsize=1, ttl=60)
+_osint_cache: TTLCache = TTLCache(maxsize=1, ttl=60)
 
 
 # Curated OSINT X accounts (these are real OSINT analysts/accounts)
@@ -62,8 +62,8 @@ async def get_x_intelligence() -> list[dict]:
 
     # PRIMARY: Convert real news into OSINT-style intelligence posts
     try:
-        from services.google_news_service import fetch_conflict_news
-        news = await fetch_conflict_news(max_articles=30)
+        from services.google_news_service import fetch_conflict_news, score_importance
+        news = await fetch_conflict_news(max_articles=50)
 
         for article in news:
             title = article.get("title", "")
@@ -72,6 +72,11 @@ async def get_x_intelligence() -> list[dict]:
             pub_date = article.get("published_at", "")
             event_type = article.get("event_type", "military")
             location = article.get("location_name", "")
+            importance = article.get("importance", score_importance(article))
+
+            # Quality filter: only include significant intel (importance >= 15)
+            if importance < 15:
+                continue
 
             # Assign to relevant OSINT account based on topic
             account = _assign_osint_account(title, event_type)
@@ -86,31 +91,17 @@ async def get_x_intelligence() -> list[dict]:
                 "url": url,
                 "focus": account["focus"],
                 "category": _categorize_post(title),
-                "verified": True,  # From real news sources
+                "verified": True,
                 "news_source": source,
+                "importance": importance,
             })
 
     except Exception as e:
         logger.warning("News-based X intel failed: %s", e)
 
-    # Add account links for real OSINT accounts people should follow
-    for account in X_OSINT_ACCOUNTS:
-        posts.append({
-            "id": _generate_id(f"x-account-{account['handle']}"),
-            "source": "x_twitter",
-            "channel": account["name"],
-            "handle": account["handle"],
-            "text": f"Follow {account['name']} ({account['handle']}) for live {account['focus']}",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "url": f"https://x.com/{account['handle'].lstrip('@')}",
-            "focus": account["focus"],
-            "category": "general",
-            "verified": True,
-            "is_account_link": True,
-        })
-
-    posts.sort(key=lambda p: p.get("timestamp", ""), reverse=True)
-    posts = posts[:40]
+    # Sort by importance then time, keep top 25 quality posts
+    posts.sort(key=lambda p: (p.get("importance", 0), p.get("timestamp", "")), reverse=True)
+    posts = posts[:25]
 
     _x_cache[cache_key] = posts
     logger.info("X intelligence: %d posts from real sources", len(posts))
@@ -144,8 +135,8 @@ async def get_telegram_intelligence() -> list[dict]:
     # SECONDARY: Derive intelligence from real news (formatted as Telegram-style posts)
     if len(posts) < 10:
         try:
-            from services.google_news_service import fetch_conflict_news
-            news = await fetch_conflict_news(max_articles=25)
+            from services.google_news_service import fetch_conflict_news, score_importance
+            news = await fetch_conflict_news(max_articles=40)
 
             # Assign news to Telegram channel themes
             channel_map = {
@@ -163,6 +154,11 @@ async def get_telegram_intelligence() -> list[dict]:
                 source = article.get("source", "")
                 url = article.get("url", "")
                 pub_date = article.get("published_at", "")
+                importance = article.get("importance", score_importance(article))
+
+                # Quality filter: only important intel
+                if importance < 15:
+                    continue
 
                 # Match to channel
                 channel = {"name": "Military OSINT", "handle": "t.me/military_osint", "focus": "Global military tracking"}
@@ -187,14 +183,15 @@ async def get_telegram_intelligence() -> list[dict]:
                     "focus": channel["focus"],
                     "category": _categorize_post(title),
                     "from_news": True,
+                    "importance": importance,
                 })
 
         except Exception as e:
             logger.warning("News-based Telegram intel failed: %s", e)
 
-    # Sort by timestamp, newest first
-    posts.sort(key=lambda p: p.get("timestamp", ""), reverse=True)
-    posts = posts[:50]
+    # Sort by importance then timestamp, keep top quality
+    posts.sort(key=lambda p: (p.get("importance", 0), p.get("timestamp", "")), reverse=True)
+    posts = posts[:30]
 
     _telegram_cache[cache_key] = posts
     logger.info("Telegram intelligence: %d posts (%d scraped, rest from news)", len(posts),

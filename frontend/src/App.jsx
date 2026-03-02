@@ -404,9 +404,20 @@ export default function App() {
     loadOsintOther();
     loadStatus();
 
-    // Only poll system status (lightweight health check) - everything else is WebSocket-driven
+    // Poll intel tabs every 30s as backup to WebSocket for live updates
     const statusInterval = setInterval(loadStatus, 30000);
-    intervalsRef.current = [statusInterval];
+    const intelInterval = setInterval(() => {
+      loadXIntelligence();
+      loadTelegramIntelligence();
+      loadOsintOther();
+      loadNews();
+      loadAIInsights();
+    }, 30000);
+    const conflictInterval = setInterval(() => {
+      loadConflicts();
+      loadMissiles();
+    }, 60000);
+    intervalsRef.current = [statusInterval, intelInterval, conflictInterval];
 
     return () => {
       intervalsRef.current.forEach(clearInterval);

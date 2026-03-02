@@ -358,45 +358,74 @@ _seen_conflict_ids: set[str] = set()
 _seen_missile_ids: set[str] = set()
 
 
+_alert_title_keys: set[str] = set()  # Track seen alert titles to prevent duplicates
+
+
 async def _generate_alerts_from_data():
-    """Generate real alerts when new significant events are detected."""
-    global _seen_conflict_ids, _seen_missile_ids
+    """Generate alerts only for truly significant new events. Quality over quantity."""
+    global _seen_conflict_ids, _seen_missile_ids, _alert_title_keys
 
     now = datetime.now(timezone.utc)
     new_alerts: list[dict] = []
 
-    # Check for new conflict events
+    # Alert-worthy keywords (only alert on genuinely important events)
+    ALERT_KEYWORDS = {
+        "breaking", "killed", "casualties", "intercepted", "launched",
+        "struck", "explosion", "declared", "invaded", "emergency",
+        "escalation", "retaliation", "war", "ceasefire",
+    }
+
+    # Check for new conflict events - ONLY critical severity with alert keywords
     conflicts = _data_store.get("conflicts", [])
     for c in conflicts:
         cid = c.id if hasattr(c, "id") else c.get("id", "")
         if cid and cid not in _seen_conflict_ids:
             _seen_conflict_ids.add(cid)
             severity = c.severity if hasattr(c, "severity") else c.get("severity", "medium")
-            title = c.title if hasattr(c, "title") else c.get("title", "New conflict event")
+            title = c.title if hasattr(c, "title") else c.get("title", "")
             metadata = c.metadata if hasattr(c, "metadata") else c.get("metadata", {})
             location = metadata.get("location", "") if isinstance(metadata, dict) else ""
 
-            if severity in ("critical", "high"):
-                new_alerts.append({
-                    "id": f"alert-{cid}",
-                    "title": f"NEW: {title[:120]}",
-                    "description": f"Source: {c.source if hasattr(c, 'source') else c.get('source', 'News')}" + (f" | {location}" if location else ""),
-                    "severity": severity,
-                    "type": metadata.get("event_type", "conflict") if isinstance(metadata, dict) else "conflict",
-                    "timestamp": now.isoformat(),
-                    "region": location,
-                })
+            # Only alert on critical events with significant keywords
+            if severity != "critical":
+                continue
+            title_lower = title.lower()
+            if not any(kw in title_lower for kw in ALERT_KEYWORDS):
+                continue
+            # Deduplicate similar alerts (same first 50 chars)
+            title_key = title_lower[:50]
+            if title_key in _alert_title_keys:
+                continue
+            _alert_title_keys.add(title_key)
 
-    # Check for new missile events
+            new_alerts.append({
+                "id": f"alert-{cid}",
+                "title": f"BREAKING: {title[:120]}",
+                "description": f"Source: {c.source if hasattr(c, 'source') else c.get('source', 'News')}" + (f" | {location}" if location else ""),
+                "severity": "critical",
+                "type": metadata.get("event_type", "conflict") if isinstance(metadata, dict) else "conflict",
+                "timestamp": now.isoformat(),
+                "region": location,
+            })
+
+    # Check for new missile events - only confirmed/intercepted (not every "reported")
     missiles = _data_store.get("missiles", [])
     for m in missiles:
         mid = m.id if hasattr(m, "id") else m.get("id", "")
         if mid and mid not in _seen_missile_ids:
             _seen_missile_ids.add(mid)
-            title = m.title if hasattr(m, "title") else m.get("title", "New missile event")
+            title = m.title if hasattr(m, "title") else m.get("title", "")
             status = m.status if hasattr(m, "status") else m.get("status", "reported")
             metadata = m.metadata if hasattr(m, "metadata") else m.get("metadata", {})
             location = metadata.get("location", "") if isinstance(metadata, dict) else ""
+
+            # Only alert on confirmed or intercepted missile events
+            if status not in ("confirmed", "intercepted"):
+                continue
+            title_key = title.lower()[:50]
+            if title_key in _alert_title_keys:
+                continue
+            _alert_title_keys.add(title_key)
 
             new_alerts.append({
                 "id": f"alert-{mid}",
@@ -408,9 +437,13 @@ async def _generate_alerts_from_data():
                 "region": location,
             })
 
-    # Broadcast new alerts via WebSocket
-    for alert in new_alerts[-10:]:  # max 10 new alerts at a time
+    # Broadcast max 5 new alerts at a time (prevent spam)
+    for alert in new_alerts[:5]:
         await manager.broadcast("alert", alert)
+
+    # Keep alert keys set from growing forever
+    if len(_alert_title_keys) > 500:
+        _alert_title_keys.clear()
 
     return new_alerts
 
@@ -485,7 +518,7 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(refresh_news, "interval", seconds=settings.SCHEDULER_NEWS, id="news")
     scheduler.add_job(refresh_vessels, "interval", seconds=30, id="vessels")
     scheduler.add_job(refresh_ai_insights, "interval", seconds=settings.SCHEDULER_AI_INSIGHTS, id="ai_insights")
-    scheduler.add_job(refresh_osint, "interval", seconds=300, id="osint")
+    scheduler.add_job(refresh_osint, "interval", seconds=60, id="osint")
 
     # Daily database cleanup
     scheduler.add_job(

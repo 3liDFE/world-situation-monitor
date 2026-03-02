@@ -16,7 +16,7 @@ from cachetools import TTLCache
 
 logger = logging.getLogger(__name__)
 
-_news_cache: TTLCache = TTLCache(maxsize=20, ttl=120)  # 2 minute cache
+_news_cache: TTLCache = TTLCache(maxsize=20, ttl=60)  # 60 second cache for live updates
 
 # Conflict-focused search queries for the Middle East
 CONFLICT_QUERIES = [
@@ -100,6 +100,95 @@ EVENT_TYPES = {
 
 def _generate_id(text: str) -> str:
     return hashlib.md5(text.encode("utf-8", errors="replace")).hexdigest()[:12]
+
+
+# ============================================================================
+# Importance Scoring - Filter noise, keep only significant intel
+# ============================================================================
+
+# High-value news sources (trusted, fast, authoritative)
+TIER1_SOURCES = {
+    "reuters", "ap news", "associated press", "bbc", "cnn", "al jazeera",
+    "the new york times", "the washington post", "the guardian", "france 24",
+    "dw", "sky news", "bloomberg", "financial times",
+}
+
+# Critical action keywords (highest priority)
+CRITICAL_KEYWORDS = [
+    "breaking", "just in", "confirmed", "casualties", "killed", "dead",
+    "intercepted", "launched", "struck", "explosion", "attacked",
+    "declared war", "invaded", "shot down", "emergency", "evacuate",
+    "nuclear", "chemical", "biological", "wmd",
+]
+
+# High importance keywords
+HIGH_KEYWORDS = [
+    "missile", "drone strike", "airstrike", "bombing", "rocket",
+    "ballistic", "cruise missile", "iron dome", "patriot",
+    "ceasefire", "peace deal", "surrender", "offensive",
+    "troops deployed", "invasion", "escalation", "retaliation",
+    "carrier strike group", "no-fly zone", "blockade",
+]
+
+# Medium importance keywords
+MEDIUM_KEYWORDS = [
+    "military", "conflict", "tensions", "sanctions", "diplomacy",
+    "deployment", "exercise", "navy", "air force", "army",
+    "intelligence", "surveillance", "reconnaissance",
+]
+
+# Noise/low-value patterns to filter out
+NOISE_PATTERNS = [
+    "opinion:", "editorial:", "analysis:", "podcast:", "review:",
+    "what you need to know", "explained:", "how to", "subscribe",
+    "sign up", "newsletter", "comment", "live blog",
+]
+
+
+def score_importance(article: dict) -> int:
+    """
+    Score article importance (0-100). Higher = more important.
+    Factors: keywords, source quality, recency, event type.
+    """
+    score = 0
+    title = article.get("title", "").lower()
+    source = article.get("source", "").lower()
+
+    # Noise filter - immediately disqualify
+    for pattern in NOISE_PATTERNS:
+        if pattern in title:
+            return 0
+
+    # Source quality (0-25)
+    if any(s in source for s in TIER1_SOURCES):
+        score += 25
+    elif source:
+        score += 10
+
+    # Critical keywords (0-35)
+    critical_matches = sum(1 for kw in CRITICAL_KEYWORDS if kw in title)
+    score += min(critical_matches * 12, 35)
+
+    # High keywords (0-20)
+    high_matches = sum(1 for kw in HIGH_KEYWORDS if kw in title)
+    score += min(high_matches * 7, 20)
+
+    # Medium keywords (0-10)
+    medium_matches = sum(1 for kw in MEDIUM_KEYWORDS if kw in title)
+    score += min(medium_matches * 4, 10)
+
+    # Has location (geolocatable = more actionable intel)
+    if article.get("lat") is not None:
+        score += 5
+
+    # Event type bonus
+    event_type = article.get("event_type", "")
+    if event_type in ("missile", "airstrike", "interception"):
+        score += 5
+    elif event_type in ("drone", "rocket"):
+        score += 3
+
+    return min(score, 100)
 
 
 def _infer_location(text: str) -> Optional[tuple[float, float, str]]:
@@ -227,19 +316,25 @@ async def fetch_conflict_news(max_articles: int = 200) -> list[dict]:
                         article["lon"] = location[1]
                         article["location_name"] = location[2]
 
+                    # Score importance
+                    article["importance"] = score_importance(article)
+
                     all_articles.append(article)
 
             except Exception as e:
                 logger.warning("Google News query '%s' failed: %s", query, str(e))
 
-    # Sort by date, newest first
-    all_articles.sort(key=lambda a: a.get("published_at", ""), reverse=True)
+    # Filter out noise (importance score 0)
+    all_articles = [a for a in all_articles if a.get("importance", 0) > 0]
+
+    # Sort by importance first, then by date
+    all_articles.sort(key=lambda a: (a.get("importance", 0), a.get("published_at", "")), reverse=True)
 
     # Limit
     all_articles = all_articles[:max_articles]
 
     _news_cache[cache_key] = all_articles
-    logger.info("Fetched %d real conflict articles from Google News", len(all_articles))
+    logger.info("Fetched %d quality-filtered conflict articles from Google News", len(all_articles))
     return all_articles
 
 
@@ -295,7 +390,7 @@ async def fetch_breaking_news(max_articles: int = 50) -> list[dict]:
 
                     location = _infer_location(title)
 
-                    articles.append({
+                    art = {
                         "id": _generate_id(f"gnews-break-{title[:50]}"),
                         "title": title,
                         "url": link,
@@ -308,14 +403,17 @@ async def fetch_breaking_news(max_articles: int = 50) -> list[dict]:
                             w in title.lower()
                             for w in ["attack", "kill", "dead", "strike", "bomb", "war"]
                         ) else "neutral",
-                    })
+                    }
+                    art["importance"] = score_importance(art)
+                    if art["importance"] > 0:
+                        articles.append(art)
 
             except Exception as e:
                 logger.warning("Breaking news query '%s' failed: %s", query, str(e))
 
-    articles.sort(key=lambda a: a.get("published_at", ""), reverse=True)
+    articles.sort(key=lambda a: (a.get("importance", 0), a.get("published_at", "")), reverse=True)
     articles = articles[:max_articles]
 
     _news_cache[cache_key] = articles
-    logger.info("Fetched %d breaking news articles", len(articles))
+    logger.info("Fetched %d quality-filtered breaking news articles", len(articles))
     return articles
