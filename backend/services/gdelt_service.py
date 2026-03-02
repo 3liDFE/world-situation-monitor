@@ -657,9 +657,10 @@ _LOCATION_COORDS: dict[str, tuple[float, float]] = {
     "kandahar": (31.6, 65.7),
     "pakistan": (30.4, 69.3),
     "islamabad": (33.7, 73.0),
-    "uae": (24.5, 54.4),
+    "uae": (24.5, 54.4), "emirates": (24.5, 54.4),
     "abu dhabi": (24.5, 54.4),
     "dubai": (25.2, 55.3),
+    "saudi": (23.9, 45.1),
     "qatar": (25.3, 51.5),
     "doha": (25.3, 51.5),
     "bahrain": (26.0, 50.6),
@@ -713,12 +714,26 @@ _LOCATION_COORDS: dict[str, tuple[float, float]] = {
 
 
 def _infer_coordinates_from_text(text: str) -> Optional[tuple[float, float]]:
-    """Attempt to infer geographic coordinates from text by matching known locations."""
+    """Infer coordinates from text using word-boundary matching. Returns first match by position."""
     text_lower = text.lower()
-    # Try to match the most specific location first (cities before countries)
-    # Sort by length descending so longer names match first
-    sorted_locations = sorted(_LOCATION_COORDS.keys(), key=len, reverse=True)
-    for location in sorted_locations:
-        if location in text_lower:
-            return _LOCATION_COORDS[location]
-    return None
+    candidates: list[tuple[int, str]] = []
+
+    for location in _LOCATION_COORDS:
+        idx = 0
+        while True:
+            pos = text_lower.find(location, idx)
+            if pos == -1:
+                break
+            char_before = text_lower[pos - 1] if pos > 0 else ' '
+            char_after = text_lower[pos + len(location)] if pos + len(location) < len(text_lower) else ' '
+            if not char_before.isalpha() and not char_after.isalpha():
+                candidates.append((pos, location))
+                break
+            idx = pos + 1
+
+    if not candidates:
+        return None
+
+    # First mentioned location is most relevant
+    candidates.sort(key=lambda c: (c[0], -len(c[1])))
+    return _LOCATION_COORDS[candidates[0][1]]

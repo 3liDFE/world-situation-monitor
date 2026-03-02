@@ -18,31 +18,42 @@ logger = logging.getLogger(__name__)
 
 _news_cache: TTLCache = TTLCache(maxsize=20, ttl=60)  # 60 second cache for live updates
 
-# Conflict-focused search queries - GLOBAL coverage
+# Conflict-focused search queries - EVERY country on the map gets coverage
 CONFLICT_QUERIES = [
-    # Middle East (primary focus)
-    "Iran attack missile drone strike",
-    "Israel military strike airstrike",
-    "Houthi Red Sea attack shipping",
-    "Syria airstrike bombing military",
-    "Gaza military operation strike",
-    "Lebanon Hezbollah rocket missile",
-    "Iraq militia attack base",
-    "Yemen Saudi coalition strike",
+    # Middle East - primary focus
+    "Iran military attack missile drone",
+    "Israel military strike airstrike Gaza",
+    "Houthi Red Sea shipping attack missile",
+    "Syria airstrike bombing military operation",
+    "Gaza Palestine military operation strike",
+    "Lebanon Hezbollah rocket missile strike",
+    "Iraq militia attack military base drone",
+    "Yemen Saudi coalition strike Houthi",
+    "UAE military security defense missile",
+    "Saudi Arabia military defense security",
+    "Jordan military border security tensions",
+    "Egypt military Sinai security operation",
+    "Turkey military operation Syria Kurdistan",
+    "Qatar diplomacy military base security",
+    "Kuwait military security defense",
+    "Bahrain military security naval base",
+    "Oman military security strait Hormuz",
+    # Central/South Asia
+    "Afghanistan Taliban military attack",
+    "Pakistan military security border operation",
     # Eastern Europe
     "Ukraine Russia war missile drone attack",
     "Ukraine frontline military strike today",
     # Africa
-    "Sudan war conflict military airstrike",
+    "Sudan war conflict military airstrike Khartoum",
     "Somalia al-Shabaab military attack",
-    "Libya conflict military forces",
+    "Libya conflict military forces Tripoli",
     # Asia-Pacific
-    "Taiwan China military tensions",
-    "North Korea missile launch test",
+    "North Korea missile launch military test",
+    "Taiwan China military tensions strait",
     "Myanmar conflict military operation",
-    # Global military/security
-    "NATO military deployment forces",
-    "global conflict breaking military news",
+    # Global
+    "NATO military deployment operations",
 ]
 
 # Location keyword to coordinates mapping
@@ -85,14 +96,22 @@ LOCATION_COORDS: dict[str, tuple[float, float]] = {
     "palestine": (31.90, 35.20), "lebanon": (33.85, 35.86),
     "syria": (34.80, 38.00), "iraq": (33.22, 43.68),
     "yemen": (15.55, 48.52), "saudi arabia": (23.89, 45.08),
+    "saudi": (23.89, 45.08), "saudis": (23.89, 45.08),  # Headlines use Saudi/Saudis
     "uae": (24.47, 54.37), "united arab emirates": (24.47, 54.37),
-    "qatar": (25.35, 51.18), "bahrain": (26.07, 50.55),
-    "kuwait": (29.31, 47.48), "oman": (21.47, 55.98),
-    "jordan": (31.24, 36.51), "egypt": (26.82, 30.80),
-    "turkey": (38.96, 35.24), "pakistan": (30.38, 69.35),
-    "afghanistan": (33.94, 67.71), "libya": (26.34, 17.23),
-    "sudan": (12.86, 30.22), "ukraine": (48.38, 31.17),
-    "crimea": (45.30, 34.10), "russia": (61.52, 105.32),
+    "emirates": (24.47, 54.37),
+    "qatar": (25.35, 51.18), "qatari": (25.35, 51.18),
+    "bahrain": (26.07, 50.55), "bahraini": (26.07, 50.55),
+    "kuwait": (29.31, 47.48), "kuwaiti": (29.31, 47.48),
+    "oman": (21.47, 55.98), "omani": (21.47, 55.98),
+    "jordan": (31.24, 36.51), "jordanian": (31.24, 36.51),
+    "egypt": (26.82, 30.80), "egyptian": (26.82, 30.80),
+    "turkey": (38.96, 35.24), "turkish": (38.96, 35.24),
+    "pakistan": (30.38, 69.35), "pakistani": (30.38, 69.35),
+    "afghanistan": (33.94, 67.71), "afghan": (33.94, 67.71),
+    "libya": (26.34, 17.23), "libyan": (26.34, 17.23),
+    "sudan": (12.86, 30.22), "sudanese": (12.86, 30.22),
+    "ukraine": (48.38, 31.17), "ukrainian": (48.38, 31.17),
+    "crimea": (45.30, 34.10), "russia": (61.52, 105.32), "russian": (61.52, 105.32),
     # Additional global locations
     "kyiv": (50.45, 30.52), "kharkiv": (49.99, 36.23), "odesa": (46.48, 30.73),
     "donetsk": (48.00, 37.80), "zaporizhzhia": (47.84, 35.14), "kherson": (46.64, 32.62),
@@ -223,16 +242,84 @@ def score_importance(article: dict) -> int:
 
 
 def _infer_location(text: str) -> Optional[tuple[float, float, str]]:
-    """Extract the most specific location from text. Returns (lat, lon, location_name)."""
+    """
+    Extract the PRIMARY location from a headline. Returns (lat, lon, location_name).
+
+    Strategy: Find ALL locations mentioned, then pick the one that appears FIRST
+    in the text (headlines typically lead with the subject location).
+    Uses word-boundary matching to prevent 'iran' matching 'iranian'.
+    """
     text_lower = text.lower()
-    # Try most specific (cities) first, then regions, then countries
-    # Sort by name length descending so "khan younis" matches before "khan"
-    sorted_locations = sorted(LOCATION_COORDS.keys(), key=len, reverse=True)
-    for loc in sorted_locations:
-        if loc in text_lower:
-            lat, lon = LOCATION_COORDS[loc]
-            return lat, lon, loc.title()
-    return None
+    candidates: list[tuple[int, str, float, float]] = []  # (position, name, lat, lon)
+
+    for loc, (lat, lon) in LOCATION_COORDS.items():
+        # Word-boundary search: ensure the location isn't part of a larger word
+        # e.g., "iran" should not match "iranian", "uae" should not match "uaex"
+        idx = 0
+        while True:
+            pos = text_lower.find(loc, idx)
+            if pos == -1:
+                break
+
+            # Check word boundaries
+            char_before = text_lower[pos - 1] if pos > 0 else ' '
+            char_after = text_lower[pos + len(loc)] if pos + len(loc) < len(text_lower) else ' '
+
+            is_boundary_before = not char_before.isalpha()
+            is_boundary_after = not char_after.isalpha()
+
+            if is_boundary_before and is_boundary_after:
+                candidates.append((pos, loc, lat, lon))
+                break  # found this location, move to next
+
+            idx = pos + 1
+
+    if not candidates:
+        return None
+
+    # Sort by position (first mentioned = primary location)
+    # For ties, prefer longer names (more specific)
+    candidates.sort(key=lambda c: (c[0], -len(c[1])))
+
+    # The first candidate is the primary location
+    _, name, lat, lon = candidates[0]
+    display_name = _format_location_name(name)
+    return lat, lon, display_name
+
+
+# Special display names for locations that don't work with .title()
+_DISPLAY_NAMES: dict[str, str] = {
+    "uae": "UAE", "united arab emirates": "UAE", "emirates": "UAE",
+    "usa": "USA", "uk": "UK", "nato": "NATO",
+    "saudi": "Saudi Arabia", "saudis": "Saudi Arabia", "saudi arabia": "Saudi Arabia",
+    "red sea": "Red Sea", "south china sea": "South China Sea",
+    "gulf of aden": "Gulf of Aden", "gulf of oman": "Gulf of Oman",
+    "strait of hormuz": "Strait of Hormuz", "bab el-mandeb": "Bab el-Mandeb",
+    "suez canal": "Suez Canal", "persian gulf": "Persian Gulf",
+    "north korea": "North Korea", "south korea": "South Korea",
+    "new delhi": "New Delhi", "tel aviv": "Tel Aviv",
+    "al udeid": "Al Udeid", "al dhafra": "Al Dhafra",
+    "al-bukamal": "Al-Bukamal", "al-tanf": "Al-Tanf",
+    "ain al-asad": "Ain al-Asad", "deir ez-zor": "Deir ez-Zor",
+    "deir al-balah": "Deir al-Balah", "khan younis": "Khan Younis",
+    "bekaa valley": "Bekaa Valley", "gaza strip": "Gaza Strip",
+    "west bank": "West Bank", "golan heights": "Golan Heights",
+    "port sudan": "Port Sudan", "burkina faso": "Burkina Faso",
+    "tripoli libya": "Tripoli (Libya)", "kuwait city": "Kuwait City",
+    # Adjective forms → proper country names
+    "qatari": "Qatar", "bahraini": "Bahrain", "kuwaiti": "Kuwait",
+    "omani": "Oman", "jordanian": "Jordan", "egyptian": "Egypt",
+    "turkish": "Turkey", "pakistani": "Pakistan", "afghan": "Afghanistan",
+    "libyan": "Libya", "sudanese": "Sudan", "ukrainian": "Ukraine",
+    "russian": "Russia",
+}
+
+
+def _format_location_name(name: str) -> str:
+    """Format location name for display, handling special cases."""
+    if name in _DISPLAY_NAMES:
+        return _DISPLAY_NAMES[name]
+    return name.title()
 
 
 def _classify_event(text: str) -> str:
@@ -361,8 +448,27 @@ async def fetch_conflict_news(max_articles: int = 200) -> list[dict]:
     # Sort by date (newest first) - importance is used as filter, not sort
     all_articles.sort(key=lambda a: a.get("published_at", ""), reverse=True)
 
-    # Limit
-    all_articles = all_articles[:max_articles]
+    # Ensure geographic diversity: cap dominant locations to leave room for smaller ones
+    MAX_PER_LOCATION = 25  # No single location takes more than this many slots
+    location_counts: dict[str, int] = {}
+    diverse_articles: list[dict] = []
+    overflow: list[dict] = []
+
+    for article in all_articles:
+        loc = article.get("location_name", "")
+        count = location_counts.get(loc, 0)
+        if count < MAX_PER_LOCATION:
+            diverse_articles.append(article)
+            location_counts[loc] = count + 1
+        else:
+            overflow.append(article)
+
+    # Fill remaining slots with overflow if needed
+    result = diverse_articles[:max_articles]
+    if len(result) < max_articles:
+        result.extend(overflow[:max_articles - len(result)])
+
+    all_articles = result
 
     _news_cache[cache_key] = all_articles
     logger.info("Fetched %d quality-filtered conflict articles from Google News", len(all_articles))
@@ -380,12 +486,15 @@ async def fetch_breaking_news(max_articles: int = 50) -> list[dict]:
 
     queries = [
         "Middle East breaking news today",
-        "Iran war latest",
-        "Israel Gaza Lebanon latest",
+        "Iran Israel war latest",
+        "Gaza Lebanon Yemen breaking news",
+        "UAE Saudi Arabia Qatar security news",
+        "Jordan Egypt Turkey military news",
+        "Iraq Syria breaking conflict news",
         "Ukraine Russia war latest news",
-        "global military conflict breaking news",
-        "Africa conflict war latest",
-        "Asia Pacific military tensions",
+        "Afghanistan Pakistan security latest",
+        "Sudan Libya Somalia conflict news",
+        "global military conflict breaking news today",
     ]
 
     async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
