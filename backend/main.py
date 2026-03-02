@@ -834,7 +834,13 @@ async def get_all_layers():
     }
 
 
-@app.get("/api/status", response_model=SystemStatus, tags=["System"])
+@app.api_route("/ping", methods=["GET", "HEAD"], tags=["System"])
+async def ping():
+    """Lightweight health check for uptime monitors (GET + HEAD)."""
+    return {"status": "ok"}
+
+
+@app.api_route("/api/status", methods=["GET", "HEAD"], response_model=SystemStatus, tags=["System"])
 async def get_status():
     """Get system health, data freshness, and layer counts."""
     now = datetime.now(timezone.utc)
