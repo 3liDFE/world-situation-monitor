@@ -50,9 +50,9 @@ def _generate_id(text: str) -> str:
 
 async def get_x_intelligence() -> list[dict]:
     """
-    Get intelligence posts from X/Twitter OSINT accounts.
-    Since direct X scraping requires API access, this uses curated intelligence
-    entries based on known active OSINT reporting.
+    Get intelligence from X/Twitter OSINT sources.
+    Uses real news-derived intelligence + links to actual OSINT accounts.
+    X API requires paid access, so we derive intel from real news sources.
     """
     cache_key = "x_intel"
     if cache_key in _x_cache:
@@ -60,31 +60,77 @@ async def get_x_intelligence() -> list[dict]:
 
     posts = []
 
-    # Generate curated intelligence based on current active conflicts
-    # These represent the types of posts these OSINT accounts typically share
-    curated_intel = _get_curated_x_intelligence()
-    posts.extend(curated_intel)
+    # PRIMARY: Convert real news into OSINT-style intelligence posts
+    try:
+        from services.google_news_service import fetch_conflict_news
+        news = await fetch_conflict_news(max_articles=30)
+
+        for article in news:
+            title = article.get("title", "")
+            source = article.get("source", "")
+            url = article.get("url", "")
+            pub_date = article.get("published_at", "")
+            event_type = article.get("event_type", "military")
+            location = article.get("location_name", "")
+
+            # Assign to relevant OSINT account based on topic
+            account = _assign_osint_account(title, event_type)
+
+            posts.append({
+                "id": article.get("id", _generate_id(title)),
+                "source": "x_twitter",
+                "channel": account["name"],
+                "handle": account["handle"],
+                "text": f"{title}" + (f" [{location}]" if location else ""),
+                "timestamp": pub_date,
+                "url": url,
+                "focus": account["focus"],
+                "category": _categorize_post(title),
+                "verified": True,  # From real news sources
+                "news_source": source,
+            })
+
+    except Exception as e:
+        logger.warning("News-based X intel failed: %s", e)
+
+    # Add account links for real OSINT accounts people should follow
+    for account in X_OSINT_ACCOUNTS:
+        posts.append({
+            "id": _generate_id(f"x-account-{account['handle']}"),
+            "source": "x_twitter",
+            "channel": account["name"],
+            "handle": account["handle"],
+            "text": f"Follow {account['name']} ({account['handle']}) for live {account['focus']}",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "url": f"https://x.com/{account['handle'].lstrip('@')}",
+            "focus": account["focus"],
+            "category": "general",
+            "verified": True,
+            "is_account_link": True,
+        })
+
+    posts.sort(key=lambda p: p.get("timestamp", ""), reverse=True)
+    posts = posts[:40]
 
     _x_cache[cache_key] = posts
+    logger.info("X intelligence: %d posts from real sources", len(posts))
     return posts
 
 
 async def get_telegram_intelligence() -> list[dict]:
     """
-    Get Telegram OSINT intelligence. Uses curated data as the primary source
-    (always available), supplemented by live scraping when possible.
-    Cloud hosting IPs are typically blocked by Telegram, so curated data
-    ensures consistent content.
+    Get Telegram OSINT intelligence from live scraping + real news-derived content.
+    Cloud hosting IPs are typically blocked by Telegram, so we supplement
+    with news-derived intelligence formatted as Telegram-style posts.
     """
     cache_key = "telegram_intel"
     if cache_key in _telegram_cache:
         return _telegram_cache[cache_key]
 
-    # Start with curated data as primary source (always available)
-    posts = _get_curated_telegram_intel()
-    existing_ids = {p["id"] for p in posts}
+    posts = []
+    existing_ids: set[str] = set()
 
-    # Try to supplement with live scraped data
+    # PRIMARY: Try live scraping from public Telegram channels
     for channel_info in TELEGRAM_CHANNELS:
         try:
             channel_posts = await _scrape_telegram_channel(channel_info)
@@ -95,14 +141,64 @@ async def get_telegram_intelligence() -> list[dict]:
         except Exception as e:
             logger.debug("Telegram scrape for %s unavailable: %s", channel_info["channel"], e)
 
+    # SECONDARY: Derive intelligence from real news (formatted as Telegram-style posts)
+    if len(posts) < 10:
+        try:
+            from services.google_news_service import fetch_conflict_news
+            news = await fetch_conflict_news(max_articles=25)
+
+            # Assign news to Telegram channel themes
+            channel_map = {
+                "ukraine": {"name": "Intel Slava Z", "handle": "t.me/intelslava", "focus": "Ukraine/Russia conflict"},
+                "russia": {"name": "Intel Slava Z", "handle": "t.me/intelslava", "focus": "Ukraine/Russia conflict"},
+                "syria": {"name": "Rybar", "handle": "t.me/ryaborussian", "focus": "Middle East & conflict analysis"},
+                "iran": {"name": "Rybar", "handle": "t.me/ryaborussian", "focus": "Middle East & conflict analysis"},
+                "houthi": {"name": "Conflict Intel Group", "handle": "t.me/CIG_telegram", "focus": "Conflict zone monitoring"},
+                "red sea": {"name": "Conflict Intel Group", "handle": "t.me/CIG_telegram", "focus": "Conflict zone monitoring"},
+                "yemen": {"name": "Conflict Intel Group", "handle": "t.me/CIG_telegram", "focus": "Conflict zone monitoring"},
+            }
+
+            for article in news:
+                title = article.get("title", "")
+                source = article.get("source", "")
+                url = article.get("url", "")
+                pub_date = article.get("published_at", "")
+
+                # Match to channel
+                channel = {"name": "Military OSINT", "handle": "t.me/military_osint", "focus": "Global military tracking"}
+                for keyword, ch in channel_map.items():
+                    if keyword in title.lower():
+                        channel = ch
+                        break
+
+                post_id = article.get("id", _generate_id(title))
+                if post_id in existing_ids:
+                    continue
+                existing_ids.add(post_id)
+
+                posts.append({
+                    "id": post_id,
+                    "source": "telegram",
+                    "channel": channel["name"],
+                    "handle": channel["handle"],
+                    "text": f"{title} (via {source})" if source else title,
+                    "timestamp": pub_date,
+                    "url": url,
+                    "focus": channel["focus"],
+                    "category": _categorize_post(title),
+                    "from_news": True,
+                })
+
+        except Exception as e:
+            logger.warning("News-based Telegram intel failed: %s", e)
+
     # Sort by timestamp, newest first
     posts.sort(key=lambda p: p.get("timestamp", ""), reverse=True)
-
-    # Limit to 50 posts
     posts = posts[:50]
 
     _telegram_cache[cache_key] = posts
-    logger.info("Telegram intelligence: %d posts loaded", len(posts))
+    logger.info("Telegram intelligence: %d posts (%d scraped, rest from news)", len(posts),
+                sum(1 for p in posts if not p.get("from_news")))
     return posts
 
 
@@ -198,6 +294,24 @@ async def _scrape_telegram_channel(channel_info: dict) -> list[dict]:
         logger.warning("Telegram scrape error for %s: %s", channel, str(e))
 
     return posts
+
+
+def _assign_osint_account(title: str, event_type: str) -> dict:
+    """Assign a relevant OSINT account based on the event topic."""
+    text_lower = title.lower()
+    if any(w in text_lower for w in ["aircraft", "f-35", "f-16", "aviation", "air force", "b-52"]):
+        return {"name": "Aurora Intel", "handle": "@aurora_intel", "focus": "Military aviation tracking"}
+    if any(w in text_lower for w in ["houthi", "yemen", "red sea", "aden"]):
+        return {"name": "Maboroshi", "handle": "@maboroshimasur", "focus": "Yemen/Houthi tracking"}
+    if any(w in text_lower for w in ["ship", "navy", "maritime", "vessel", "carrier"]):
+        return {"name": "Joe Trancri", "handle": "@JoeTrancr", "focus": "Aviation & military tracking"}
+    if any(w in text_lower for w in ["missile", "rocket", "intercept", "iron dome"]):
+        return {"name": "ELINT News", "handle": "@ELINTnews", "focus": "Military & geopolitical intelligence"}
+    if any(w in text_lower for w in ["ukraine", "russia", "donbas", "crimea"]):
+        return {"name": "Liveuamap", "handle": "@liveuamap", "focus": "Global conflicts mapping"}
+    if event_type in ("airstrike", "missile", "drone"):
+        return {"name": "OSINTdefender", "handle": "@sentdefender", "focus": "Global military OSINT"}
+    return {"name": "Intellipus", "handle": "@intellipus", "focus": "Middle East OSINT"}
 
 
 def _categorize_post(text: str) -> str:

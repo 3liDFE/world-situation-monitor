@@ -67,7 +67,7 @@ def _parse_gdelt_date(date_str: str) -> datetime:
 
 async def get_conflicts() -> list[GeoEvent]:
     """
-    Fetch conflict and attack events from GDELT DOC API and GEO API.
+    Fetch real conflict events from Google News RSS + GDELT.
     Returns parsed GeoEvent models with location data.
     """
     cache_key = "conflicts"
@@ -77,13 +77,69 @@ async def get_conflicts() -> list[GeoEvent]:
 
     events: list[GeoEvent] = []
 
-    # Fetch from GDELT DOC API
-    doc_events = await _fetch_gdelt_doc_events()
-    events.extend(doc_events)
+    # PRIMARY: Get real events from Google News RSS
+    try:
+        from services.google_news_service import fetch_conflict_news
+        news_articles = await fetch_conflict_news()
 
-    # Fetch from GDELT GEO API for additional geolocated events
-    geo_events = await _fetch_gdelt_geo_events()
-    events.extend(geo_events)
+        for article in news_articles:
+            lat = article.get("lat")
+            lon = article.get("lon")
+            if lat is None or lon is None:
+                continue
+
+            title = article.get("title", "")
+            source = article.get("source", "News")
+            url = article.get("url", "")
+            pub_date = article.get("published_at", "")
+            location_name = article.get("location_name", "")
+
+            try:
+                timestamp = datetime.fromisoformat(pub_date.replace("Z", "+00:00")) if pub_date else datetime.now(timezone.utc)
+            except (ValueError, AttributeError):
+                timestamp = datetime.now(timezone.utc)
+
+            event_id = article.get("id", _generate_id(title))
+
+            # Severity from event type
+            event_type = article.get("event_type", "military")
+            if event_type in ("missile", "airstrike"):
+                severity = "critical"
+            elif event_type in ("drone", "rocket", "interception"):
+                severity = "high"
+            elif event_type in ("artillery", "naval"):
+                severity = "medium"
+            else:
+                severity = "low"
+
+            events.append(GeoEvent(
+                id=f"live-{event_id}",
+                type="conflict",
+                lat=lat,
+                lon=lon,
+                title=title,
+                description=f"Source: {source} | {location_name}",
+                severity=severity,
+                source=f"News/{source}",
+                timestamp=timestamp,
+                metadata={"url": url, "location": location_name, "event_type": event_type, "live": True},
+            ))
+
+    except Exception as e:
+        logger.error("Google News conflict extraction failed: %s", e)
+
+    # SECONDARY: Try GDELT APIs if available
+    try:
+        doc_events = await _fetch_gdelt_doc_events()
+        events.extend(doc_events)
+    except Exception:
+        pass
+
+    try:
+        geo_events = await _fetch_gdelt_geo_events()
+        events.extend(geo_events)
+    except Exception:
+        pass
 
     # Deduplicate by ID
     seen_ids: set[str] = set()
@@ -94,7 +150,7 @@ async def get_conflicts() -> list[GeoEvent]:
             unique_events.append(event)
 
     _conflict_cache[cache_key] = unique_events
-    logger.info("Fetched %d conflict events from GDELT", len(unique_events))
+    logger.info("Fetched %d conflict events (News + GDELT)", len(unique_events))
     return unique_events
 
 
@@ -265,9 +321,8 @@ async def _fetch_gdelt_geo_events() -> list[GeoEvent]:
 
 async def get_missile_events() -> list[MissileEvent]:
     """
-    Extract missile/rocket events from GDELT data and curated active conflict data.
-    Searches for articles mentioning missiles, rockets, projectiles.
-    Falls back to curated data if GDELT returns empty.
+    Extract real missile/drone/strike events from Google News RSS + GDELT.
+    Uses live news articles to detect current events and geolocate them on the map.
     """
     cache_key = "missiles"
     if cache_key in _missile_cache:
@@ -276,97 +331,129 @@ async def get_missile_events() -> list[MissileEvent]:
 
     missile_events: list[MissileEvent] = []
 
-    # Try multiple GDELT queries with broader search terms
-    queries = [
-        "missile attack middle east",
-        "rocket strike Israel Lebanon",
-        "Houthi attack Red Sea",
-        "drone strike Syria Iraq Iran",
-        "ballistic missile Yemen Saudi",
-        "iron dome intercept",
-    ]
+    # PRIMARY: Get real events from Google News RSS
+    try:
+        from services.google_news_service import fetch_conflict_news
+        news_articles = await fetch_conflict_news()
+
+        for article in news_articles:
+            title = article.get("title", "")
+            event_type = article.get("event_type", "")
+
+            # Only include missile/drone/rocket/airstrike/interception events
+            if event_type not in ("missile", "drone", "rocket", "airstrike", "interception", "artillery"):
+                continue
+
+            # Must have location to plot on map
+            lat = article.get("lat")
+            lon = article.get("lon")
+            if lat is None or lon is None:
+                continue
+
+            event_id = article.get("id", _generate_id(title))
+            source = article.get("source", "News")
+            url = article.get("url", "")
+            pub_date = article.get("published_at", "")
+            status = article.get("status", "reported")
+            location_name = article.get("location_name", "")
+
+            try:
+                timestamp = datetime.fromisoformat(pub_date.replace("Z", "+00:00")) if pub_date else datetime.now(timezone.utc)
+            except (ValueError, AttributeError):
+                timestamp = datetime.now(timezone.utc)
+
+            missile_type = _classify_missile_type(title)
+
+            missile_events.append(MissileEvent(
+                id=f"live-{event_id}",
+                launch_lat=lat,
+                launch_lon=lon,
+                target_lat=None,
+                target_lon=None,
+                missile_type=missile_type,
+                status=status,
+                source=f"News/{source}",
+                title=title,
+                description=f"Source: {source} | Location: {location_name}",
+                timestamp=timestamp,
+                metadata={"url": url, "location": location_name, "live": True},
+            ))
+
+    except Exception as e:
+        logger.error("Google News missile extraction failed: %s", e)
+
+    # SECONDARY: Try GDELT if available
+    try:
+        gdelt_missiles = await _fetch_gdelt_missiles()
+        existing_titles = {m.title.lower()[:60] for m in missile_events}
+        for gm in gdelt_missiles:
+            if gm.title.lower()[:60] not in existing_titles:
+                missile_events.append(gm)
+    except Exception as e:
+        logger.debug("GDELT missile fetch unavailable: %s", e)
+
+    # Deduplicate by ID
+    seen_ids: set[str] = set()
+    unique: list[MissileEvent] = []
+    for m in missile_events:
+        if m.id not in seen_ids:
+            seen_ids.add(m.id)
+            unique.append(m)
+    missile_events = unique
+
+    _missile_cache[cache_key] = missile_events
+    logger.info("Extracted %d real missile/strike events from live news", len(missile_events))
+    return missile_events
+
+
+async def _fetch_gdelt_missiles() -> list[MissileEvent]:
+    """Try GDELT DOC API for missile events (may fail on cloud hosting)."""
+    events: list[MissileEvent] = []
+    queries = ["missile attack", "drone strike", "rocket launch intercept"]
 
     for query_text in queries:
         try:
             params = {
                 "query": query_text,
                 "mode": "artlist",
-                "maxrecords": "30",
+                "maxrecords": "20",
                 "format": "json",
                 "sort": "datedesc",
             }
-
-            async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT) as client:
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(settings.GDELT_DOC_API, params=params)
                 response.raise_for_status()
                 data = response.json()
 
-                articles = data.get("articles", [])
-                for article in articles:
+                for article in data.get("articles", []):
                     title = article.get("title", "")
+                    if not MISSILE_KEYWORDS.search(title):
+                        continue
+                    coords = _infer_coordinates_from_text(title)
+                    if not coords:
+                        continue
+                    lat, lon = coords
                     url = article.get("url", "")
                     seendate = article.get("seendate", "")
                     source = article.get("domain", "")
-
-                    # Only include if title matches missile keywords
-                    if not MISSILE_KEYWORDS.search(title):
-                        continue
-
-                    # Try to get coordinates
-                    lat = article.get("latitude", None)
-                    lon = article.get("longitude", None)
-
-                    if lat is None or lon is None:
-                        coords = _infer_coordinates_from_text(title)
-                        if coords:
-                            lat, lon = coords
-
-                    event_id = _generate_id(f"missile-{url}{seendate}")
+                    event_id = _generate_id(f"gdelt-m-{url}{seendate}")
                     timestamp = _parse_gdelt_date(seendate) if seendate else datetime.now(timezone.utc)
 
-                    missile_type = _classify_missile_type(title)
-                    status = _classify_missile_status(title)
-
-                    missile_events.append(MissileEvent(
-                        id=f"missile-{event_id}",
-                        launch_lat=lat,
-                        launch_lon=lon,
-                        target_lat=None,
-                        target_lon=None,
-                        missile_type=missile_type,
-                        status=status,
-                        source=f"GDELT/{source}",
-                        title=title,
+                    events.append(MissileEvent(
+                        id=f"gdelt-{event_id}",
+                        launch_lat=lat, launch_lon=lon,
+                        target_lat=None, target_lon=None,
+                        missile_type=_classify_missile_type(title),
+                        status=_classify_missile_status(title),
+                        source=f"GDELT/{source}", title=title,
                         description=f"Source: {source}",
                         timestamp=timestamp,
                         metadata={"url": url},
                     ))
+        except Exception:
+            pass
 
-        except Exception as e:
-            logger.warning("GDELT missile query '%s' failed: %s", query_text, str(e))
-
-    # Deduplicate
-    seen_ids: set[str] = set()
-    unique_missiles: list[MissileEvent] = []
-    for m in missile_events:
-        if m.id not in seen_ids:
-            seen_ids.add(m.id)
-            unique_missiles.append(m)
-    missile_events = unique_missiles
-
-    # Always include curated missile events as baseline data
-    # GDELT rarely returns missile-specific results from cloud hosting
-    logger.info("Adding curated missile events as baseline (%d from GDELT)", len(missile_events))
-    curated = _get_curated_missile_events()
-    # Merge curated, avoiding duplicates by checking IDs
-    existing_ids = {m.id for m in missile_events}
-    for cm in curated:
-        if cm.id not in existing_ids:
-            missile_events.append(cm)
-
-    _missile_cache[cache_key] = missile_events
-    logger.info("Extracted %d missile events (GDELT + curated)", len(missile_events))
-    return missile_events
+    return events
 
 
 def _get_curated_missile_events() -> list[MissileEvent]:

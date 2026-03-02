@@ -161,12 +161,13 @@ def _serialize(obj: object) -> object:
 
 
 async def refresh_conflicts():
-    """Refresh conflict events from GDELT."""
+    """Refresh conflict events from live news + GDELT."""
     try:
         conflicts = await gdelt_service.get_conflicts()
         _data_store["conflicts"] = conflicts
         _data_store["last_update"]["conflicts"] = datetime.now(timezone.utc)
         await manager.broadcast("conflicts", conflicts)
+        await _generate_alerts_from_data()
         logger.info("Refreshed conflicts: %d events", len(conflicts))
     except Exception as e:
         error_msg = f"Failed to refresh conflicts: {e}"
@@ -175,12 +176,13 @@ async def refresh_conflicts():
 
 
 async def refresh_missiles():
-    """Refresh missile events from GDELT."""
+    """Refresh missile events from live news + GDELT."""
     try:
         missiles = await gdelt_service.get_missile_events()
         _data_store["missiles"] = missiles
         _data_store["last_update"]["missiles"] = datetime.now(timezone.utc)
         await manager.broadcast("missiles", missiles)
+        await _generate_alerts_from_data()
         logger.info("Refreshed missiles: %d events", len(missiles))
     except Exception as e:
         error_msg = f"Failed to refresh missiles: {e}"
@@ -349,6 +351,68 @@ def _record_error(msg: str):
     errors = _data_store.get("errors", [])
     errors.append(f"[{datetime.now(timezone.utc).isoformat()}] {msg}")
     _data_store["errors"] = errors[-50:]
+
+
+# Track previously seen event IDs to detect new events for alerts
+_seen_conflict_ids: set[str] = set()
+_seen_missile_ids: set[str] = set()
+
+
+async def _generate_alerts_from_data():
+    """Generate real alerts when new significant events are detected."""
+    global _seen_conflict_ids, _seen_missile_ids
+
+    now = datetime.now(timezone.utc)
+    new_alerts: list[dict] = []
+
+    # Check for new conflict events
+    conflicts = _data_store.get("conflicts", [])
+    for c in conflicts:
+        cid = c.id if hasattr(c, "id") else c.get("id", "")
+        if cid and cid not in _seen_conflict_ids:
+            _seen_conflict_ids.add(cid)
+            severity = c.severity if hasattr(c, "severity") else c.get("severity", "medium")
+            title = c.title if hasattr(c, "title") else c.get("title", "New conflict event")
+            metadata = c.metadata if hasattr(c, "metadata") else c.get("metadata", {})
+            location = metadata.get("location", "") if isinstance(metadata, dict) else ""
+
+            if severity in ("critical", "high"):
+                new_alerts.append({
+                    "id": f"alert-{cid}",
+                    "title": f"NEW: {title[:120]}",
+                    "description": f"Source: {c.source if hasattr(c, 'source') else c.get('source', 'News')}" + (f" | {location}" if location else ""),
+                    "severity": severity,
+                    "type": metadata.get("event_type", "conflict") if isinstance(metadata, dict) else "conflict",
+                    "timestamp": now.isoformat(),
+                    "region": location,
+                })
+
+    # Check for new missile events
+    missiles = _data_store.get("missiles", [])
+    for m in missiles:
+        mid = m.id if hasattr(m, "id") else m.get("id", "")
+        if mid and mid not in _seen_missile_ids:
+            _seen_missile_ids.add(mid)
+            title = m.title if hasattr(m, "title") else m.get("title", "New missile event")
+            status = m.status if hasattr(m, "status") else m.get("status", "reported")
+            metadata = m.metadata if hasattr(m, "metadata") else m.get("metadata", {})
+            location = metadata.get("location", "") if isinstance(metadata, dict) else ""
+
+            new_alerts.append({
+                "id": f"alert-{mid}",
+                "title": f"MISSILE/STRIKE: {title[:120]}",
+                "description": f"Status: {status.upper()}" + (f" | {location}" if location else ""),
+                "severity": "critical" if status == "confirmed" else "high",
+                "type": "missile",
+                "timestamp": now.isoformat(),
+                "region": location,
+            })
+
+    # Broadcast new alerts via WebSocket
+    for alert in new_alerts[-10:]:  # max 10 new alerts at a time
+        await manager.broadcast("alert", alert)
+
+    return new_alerts
 
 
 async def initial_data_load():

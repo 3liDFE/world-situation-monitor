@@ -167,6 +167,8 @@ export default function SidePanel({
 // =============================================
 
 function LiveFeedsTab({ feeds, selectedCountry, onCountryChange }) {
+  const [activeEmbed, setActiveEmbed] = useState(null);
+
   return (
     <div>
       <div className="feed-country-selector">
@@ -180,6 +182,33 @@ function LiveFeedsTab({ feeds, selectedCountry, onCountryChange }) {
           ))}
         </select>
       </div>
+
+      {/* YouTube embed player */}
+      {activeEmbed && (
+        <div style={{ padding: '8px', borderBottom: '1px solid var(--border-color)' }}>
+          <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0, overflow: 'hidden', borderRadius: 6, background: '#000' }}>
+            <iframe
+              src={`https://www.youtube.com/embed/${activeEmbed.embed_id}?autoplay=1&mute=1`}
+              style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' }}
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+              title={activeEmbed.channel_name}
+            />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
+            <span style={{ fontSize: 10, color: 'var(--text-secondary)' }}>
+              <Radio size={10} style={{ marginRight: 4, color: '#ef4444', verticalAlign: 'middle' }} />
+              {activeEmbed.channel_name}
+            </span>
+            <button
+              onClick={() => setActiveEmbed(null)}
+              style={{ background: 'rgba(239,68,68,0.2)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', fontSize: 10, padding: '2px 8px', borderRadius: 4, cursor: 'pointer' }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
 
       {feeds.length === 0 ? (
         <div className="no-data">
@@ -196,11 +225,6 @@ function LiveFeedsTab({ feeds, selectedCountry, onCountryChange }) {
           <div
             key={`${feed.channel_name}-${idx}`}
             className="feed-item"
-            onClick={() => {
-              if (feed.stream_url) {
-                window.open(feed.stream_url, '_blank', 'noopener');
-              }
-            }}
           >
             <div className="feed-item-header">
               <span className="feed-item-channel">
@@ -211,16 +235,27 @@ function LiveFeedsTab({ feeds, selectedCountry, onCountryChange }) {
                 <span className="feed-item-lang">{feed.language}</span>
               )}
             </div>
-            <div className="feed-item-category">
-              <MapPin size={10} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+            <div className="feed-item-category" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <MapPin size={10} style={{ verticalAlign: 'middle' }} />
               {feed.country}
-              {feed.category && feed.category !== 'news' && (
-                <span style={{ marginLeft: 8, opacity: 0.6 }}>{feed.category}</span>
-              )}
-              <ExternalLink
-                size={10}
-                style={{ marginLeft: 8, verticalAlign: 'middle', opacity: 0.5 }}
-              />
+              <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+                {feed.embed_id && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setActiveEmbed(feed); }}
+                    style={{ background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)', color: '#3b82f6', fontSize: 9, padding: '2px 6px', borderRadius: 3, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}
+                    title="Watch here"
+                  >
+                    <Tv size={9} /> Watch
+                  </button>
+                )}
+                <button
+                  onClick={(e) => { e.stopPropagation(); if (feed.stream_url) window.open(feed.stream_url, '_blank', 'noopener'); }}
+                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: 9, padding: '2px 6px', borderRadius: 3, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}
+                  title="Open in new tab"
+                >
+                  <ExternalLink size={9} /> Open
+                </button>
+              </span>
             </div>
           </div>
         ))

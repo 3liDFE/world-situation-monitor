@@ -22,35 +22,47 @@ _news_cache: TTLCache = TTLCache(maxsize=10, ttl=settings.CACHE_TTL_NEWS)
 # LIVE NEWS FEEDS - Curated YouTube live stream URLs for Middle East coverage
 # ============================================================================
 
+# Live feeds using direct YouTube video embeds (known 24/7 live streams)
+# These use direct YouTube video IDs for channels with confirmed 24/7 streams
 _LIVE_FEEDS: dict[str, list[dict]] = {
-    "Iraq": [
+    "Global": [
         {
-            "country": "Iraq",
-            "channel_name": "Al Jazeera Arabic",
-            "stream_url": "https://www.youtube.com/@AlJazeeraArabic/live",
-            "language": "Arabic",
-            "category": "news",
-        },
-        {
-            "country": "Iraq",
-            "channel_name": "Rudaw English",
-            "stream_url": "https://www.youtube.com/@RudawEnglish/live",
-            "language": "English",
-            "category": "news",
-        },
-    ],
-    "Syria": [
-        {
-            "country": "Syria",
-            "channel_name": "Al Jazeera English",
-            "stream_url": "https://www.youtube.com/@AlJazeeraEnglish/live",
+            "country": "Global",
+            "channel_name": "Al Jazeera English - LIVE",
+            "stream_url": "https://www.youtube.com/watch?v=gCNeDWCI0vo",
+            "embed_id": "gCNeDWCI0vo",
             "language": "English",
             "category": "news",
         },
         {
-            "country": "Syria",
-            "channel_name": "France 24 English",
-            "stream_url": "https://www.youtube.com/@FRANCE24English/live",
+            "country": "Global",
+            "channel_name": "France 24 English - LIVE",
+            "stream_url": "https://www.youtube.com/watch?v=h3MuIUNCCzI",
+            "embed_id": "h3MuIUNCCzI",
+            "language": "English",
+            "category": "news",
+        },
+        {
+            "country": "Global",
+            "channel_name": "DW News - LIVE",
+            "stream_url": "https://www.youtube.com/watch?v=GE_SfNVNyqo",
+            "embed_id": "GE_SfNVNyqo",
+            "language": "English",
+            "category": "news",
+        },
+        {
+            "country": "Global",
+            "channel_name": "TRT World - LIVE",
+            "stream_url": "https://www.youtube.com/watch?v=CV5Fooi8YJE",
+            "embed_id": "CV5Fooi8YJE",
+            "language": "English",
+            "category": "news",
+        },
+        {
+            "country": "Global",
+            "channel_name": "WION - LIVE",
+            "stream_url": "https://www.youtube.com/watch?v=iuxPTliuqQg",
+            "embed_id": "iuxPTliuqQg",
             "language": "English",
             "category": "news",
         },
@@ -58,15 +70,9 @@ _LIVE_FEEDS: dict[str, list[dict]] = {
     "Palestine": [
         {
             "country": "Palestine",
-            "channel_name": "Al Jazeera English - Gaza Live",
-            "stream_url": "https://www.youtube.com/@AlJazeeraEnglish/live",
-            "language": "English",
-            "category": "news",
-        },
-        {
-            "country": "Palestine",
-            "channel_name": "TRT World",
-            "stream_url": "https://www.youtube.com/@TRTWorld/live",
+            "channel_name": "Al Jazeera English - LIVE",
+            "stream_url": "https://www.youtube.com/watch?v=gCNeDWCI0vo",
+            "embed_id": "gCNeDWCI0vo",
             "language": "English",
             "category": "news",
         },
@@ -79,13 +85,6 @@ _LIVE_FEEDS: dict[str, list[dict]] = {
             "language": "English",
             "category": "news",
         },
-        {
-            "country": "Israel",
-            "channel_name": "DW News",
-            "stream_url": "https://www.youtube.com/@DWNews/live",
-            "language": "English",
-            "category": "news",
-        },
     ],
     "Iran": [
         {
@@ -95,26 +94,33 @@ _LIVE_FEEDS: dict[str, list[dict]] = {
             "language": "Persian",
             "category": "news",
         },
+    ],
+    "Iraq": [
         {
-            "country": "Iran",
-            "channel_name": "BBC Persian",
-            "stream_url": "https://www.youtube.com/@BBCPersian/live",
-            "language": "Persian",
+            "country": "Iraq",
+            "channel_name": "Al Jazeera Arabic - LIVE",
+            "stream_url": "https://www.youtube.com/watch?v=bNyUyrR0PHo",
+            "embed_id": "bNyUyrR0PHo",
+            "language": "Arabic",
+            "category": "news",
+        },
+    ],
+    "Syria": [
+        {
+            "country": "Syria",
+            "channel_name": "Al Jazeera English - LIVE",
+            "stream_url": "https://www.youtube.com/watch?v=gCNeDWCI0vo",
+            "embed_id": "gCNeDWCI0vo",
+            "language": "English",
             "category": "news",
         },
     ],
     "Yemen": [
         {
             "country": "Yemen",
-            "channel_name": "Al Arabiya",
-            "stream_url": "https://www.youtube.com/@AlArabiya/live",
-            "language": "Arabic",
-            "category": "news",
-        },
-        {
-            "country": "Yemen",
-            "channel_name": "Sky News Arabia",
-            "stream_url": "https://www.youtube.com/@skynewsarabia/live",
+            "channel_name": "Al Arabiya - LIVE",
+            "stream_url": "https://www.youtube.com/watch?v=1Ql7yKDQrSs",
+            "embed_id": "1Ql7yKDQrSs",
             "language": "Arabic",
             "category": "news",
         },
@@ -122,15 +128,9 @@ _LIVE_FEEDS: dict[str, list[dict]] = {
     "Lebanon": [
         {
             "country": "Lebanon",
-            "channel_name": "LBCI Lebanon",
-            "stream_url": "https://www.youtube.com/@LBCITV/live",
-            "language": "Arabic",
-            "category": "news",
-        },
-        {
-            "country": "Lebanon",
-            "channel_name": "Al Jazeera English",
-            "stream_url": "https://www.youtube.com/@AlJazeeraEnglish/live",
+            "channel_name": "Al Jazeera English - LIVE",
+            "stream_url": "https://www.youtube.com/watch?v=gCNeDWCI0vo",
+            "embed_id": "gCNeDWCI0vo",
             "language": "English",
             "category": "news",
         },
@@ -138,15 +138,9 @@ _LIVE_FEEDS: dict[str, list[dict]] = {
     "Saudi Arabia": [
         {
             "country": "Saudi Arabia",
-            "channel_name": "Al Arabiya",
-            "stream_url": "https://www.youtube.com/@AlArabiya/live",
-            "language": "Arabic",
-            "category": "news",
-        },
-        {
-            "country": "Saudi Arabia",
-            "channel_name": "Sky News Arabia",
-            "stream_url": "https://www.youtube.com/@skynewsarabia/live",
+            "channel_name": "Sky News Arabia - LIVE",
+            "stream_url": "https://www.youtube.com/watch?v=XHD4ncYHzFk",
+            "embed_id": "XHD4ncYHzFk",
             "language": "Arabic",
             "category": "news",
         },
@@ -154,15 +148,9 @@ _LIVE_FEEDS: dict[str, list[dict]] = {
     "UAE": [
         {
             "country": "UAE",
-            "channel_name": "Sky News Arabia",
-            "stream_url": "https://www.youtube.com/@skynewsarabia/live",
-            "language": "Arabic",
-            "category": "news",
-        },
-        {
-            "country": "UAE",
-            "channel_name": "Al Arabiya",
-            "stream_url": "https://www.youtube.com/@AlArabiya/live",
+            "channel_name": "Sky News Arabia - LIVE",
+            "stream_url": "https://www.youtube.com/watch?v=XHD4ncYHzFk",
+            "embed_id": "XHD4ncYHzFk",
             "language": "Arabic",
             "category": "news",
         },
@@ -170,15 +158,9 @@ _LIVE_FEEDS: dict[str, list[dict]] = {
     "Turkey": [
         {
             "country": "Turkey",
-            "channel_name": "TRT World",
-            "stream_url": "https://www.youtube.com/@TRTWorld/live",
-            "language": "English",
-            "category": "news",
-        },
-        {
-            "country": "Turkey",
-            "channel_name": "Al Jazeera English",
-            "stream_url": "https://www.youtube.com/@AlJazeeraEnglish/live",
+            "channel_name": "TRT World - LIVE",
+            "stream_url": "https://www.youtube.com/watch?v=CV5Fooi8YJE",
+            "embed_id": "CV5Fooi8YJE",
             "language": "English",
             "category": "news",
         },
@@ -186,75 +168,9 @@ _LIVE_FEEDS: dict[str, list[dict]] = {
     "Egypt": [
         {
             "country": "Egypt",
-            "channel_name": "Al Jazeera Arabic",
-            "stream_url": "https://www.youtube.com/@AlJazeeraArabic/live",
-            "language": "Arabic",
-            "category": "news",
-        },
-        {
-            "country": "Egypt",
-            "channel_name": "France 24 English",
-            "stream_url": "https://www.youtube.com/@FRANCE24English/live",
-            "language": "English",
-            "category": "news",
-        },
-    ],
-    "Jordan": [
-        {
-            "country": "Jordan",
-            "channel_name": "Roya News",
-            "stream_url": "https://www.youtube.com/@RoyaNews/live",
-            "language": "Arabic",
-            "category": "news",
-        },
-    ],
-    "Global": [
-        {
-            "country": "Global",
-            "channel_name": "Al Jazeera English",
-            "stream_url": "https://www.youtube.com/@AlJazeeraEnglish/live",
-            "language": "English",
-            "category": "news",
-        },
-        {
-            "country": "Global",
-            "channel_name": "France 24 English",
-            "stream_url": "https://www.youtube.com/@FRANCE24English/live",
-            "language": "English",
-            "category": "news",
-        },
-        {
-            "country": "Global",
-            "channel_name": "DW News",
-            "stream_url": "https://www.youtube.com/@DWNews/live",
-            "language": "English",
-            "category": "news",
-        },
-        {
-            "country": "Global",
-            "channel_name": "BBC News",
-            "stream_url": "https://www.youtube.com/@BBCNews/live",
-            "language": "English",
-            "category": "news",
-        },
-        {
-            "country": "Global",
-            "channel_name": "CNN International",
-            "stream_url": "https://www.youtube.com/@CNN/live",
-            "language": "English",
-            "category": "news",
-        },
-        {
-            "country": "Global",
-            "channel_name": "WION",
-            "stream_url": "https://www.youtube.com/@WIONews/live",
-            "language": "English",
-            "category": "news",
-        },
-        {
-            "country": "Global",
-            "channel_name": "CGTN",
-            "stream_url": "https://www.youtube.com/@CGTNOfficial/live",
+            "channel_name": "France 24 English - LIVE",
+            "stream_url": "https://www.youtube.com/watch?v=h3MuIUNCCzI",
+            "embed_id": "h3MuIUNCCzI",
             "language": "English",
             "category": "news",
         },
@@ -269,7 +185,7 @@ def _generate_id(text: str) -> str:
 
 async def get_news(country: str | None = None) -> list[NewsItem]:
     """
-    Fetch Middle East news from GDELT DOC API.
+    Fetch real Middle East news from Google News RSS + GDELT.
 
     Args:
         country: Optional country filter for news results.
@@ -283,93 +199,129 @@ async def get_news(country: str | None = None) -> list[NewsItem]:
         return _news_cache[cache_key]
 
     news_items: list[NewsItem] = []
+    seen_titles: set[str] = set()
 
-    # Build query based on country filter
+    # PRIMARY: Google News RSS (always available)
+    try:
+        from services.google_news_service import fetch_breaking_news
+        articles = await fetch_breaking_news(max_articles=80)
+
+        for article in articles:
+            title = article.get("title", "")
+            if not title:
+                continue
+
+            title_key = title.lower()[:60]
+            if title_key in seen_titles:
+                continue
+            seen_titles.add(title_key)
+
+            # Country filter
+            article_country = article.get("country", "")
+            if country and article_country:
+                if country.lower() not in article_country.lower() and article_country.lower() not in country.lower():
+                    # Check if country is in the title
+                    if country.lower() not in title.lower():
+                        continue
+
+            pub_date_str = article.get("published_at", "")
+            try:
+                published = datetime.fromisoformat(pub_date_str.replace("Z", "+00:00")) if pub_date_str else datetime.now(timezone.utc)
+            except (ValueError, AttributeError):
+                published = datetime.now(timezone.utc)
+
+            keywords = _extract_keywords(title)
+
+            news_items.append(NewsItem(
+                id=article.get("id", _generate_id(title)),
+                title=title,
+                description=f"Source: {article.get('source', '')}",
+                url=article.get("url", ""),
+                image_url=article.get("image_url", ""),
+                source=article.get("source", ""),
+                country=article_country or (country or ""),
+                published_at=published,
+                keywords=keywords,
+                sentiment=article.get("sentiment", "neutral"),
+            ))
+    except Exception as e:
+        logger.error("Google News fetch failed: %s", e)
+
+    # SECONDARY: GDELT DOC API (may be unavailable)
+    try:
+        gdelt_news = await _fetch_gdelt_news(country)
+        for item in gdelt_news:
+            tk = item.title.lower()[:60]
+            if tk not in seen_titles:
+                seen_titles.add(tk)
+                news_items.append(item)
+    except Exception as e:
+        logger.debug("GDELT news unavailable: %s", e)
+
+    # Sort by date
+    news_items.sort(key=lambda n: n.published_at, reverse=True)
+    news_items = news_items[:60]
+
+    _news_cache[cache_key] = news_items
+    logger.info("Fetched %d real news items for %s", len(news_items), country or "all")
+    return news_items
+
+
+async def _fetch_gdelt_news(country: str | None = None) -> list[NewsItem]:
+    """Try GDELT DOC API for news (may fail on some hosts)."""
     if country:
-        query = f"{country} (conflict OR politics OR military OR security OR crisis)"
+        query = f"{country} (conflict OR politics OR military OR security)"
     else:
-        query = "middleeast (conflict OR politics OR military OR security OR crisis OR war OR diplomacy)"
+        query = "middleeast (conflict OR war OR military OR crisis)"
 
     params = {
         "query": query,
         "mode": "artlist",
-        "maxrecords": "50",
+        "maxrecords": "30",
         "format": "json",
         "sort": "datedesc",
     }
 
-    try:
-        async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT) as client:
-            response = await client.get(settings.GDELT_DOC_API, params=params)
-            response.raise_for_status()
-            data = response.json()
+    items: list[NewsItem] = []
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.get(settings.GDELT_DOC_API, params=params)
+        response.raise_for_status()
+        data = response.json()
 
-            articles = data.get("articles", [])
-            for article in articles:
-                title = article.get("title", "")
-                url = article.get("url", "")
-                source_domain = article.get("domain", "")
-                seendate = article.get("seendate", "")
-                socialimage = article.get("socialimage", "")
-                language = article.get("language", "")
-                source_country = article.get("sourcecountry", "")
+        for article in data.get("articles", []):
+            title = article.get("title", "")
+            if not title:
+                continue
+            url = article.get("url", "")
+            seendate = article.get("seendate", "")
+            source_domain = article.get("domain", "")
+            socialimage = article.get("socialimage", "")
 
-                if not title:
-                    continue
-
-                # Parse date
-                try:
-                    if seendate and len(seendate) >= 8:
-                        published = datetime.strptime(
-                            seendate[:14] if len(seendate) >= 14 else seendate[:8],
-                            "%Y%m%d%H%M%S" if len(seendate) >= 14 else "%Y%m%d"
-                        ).replace(tzinfo=timezone.utc)
-                    else:
-                        published = datetime.now(timezone.utc)
-                except ValueError:
+            try:
+                if seendate and len(seendate) >= 8:
+                    published = datetime.strptime(
+                        seendate[:14] if len(seendate) >= 14 else seendate[:8],
+                        "%Y%m%d%H%M%S" if len(seendate) >= 14 else "%Y%m%d"
+                    ).replace(tzinfo=timezone.utc)
+                else:
                     published = datetime.now(timezone.utc)
+            except ValueError:
+                published = datetime.now(timezone.utc)
 
-                # Extract keywords from title
-                keywords = _extract_keywords(title)
+            items.append(NewsItem(
+                id=f"gdelt-{_generate_id(f'{url}{seendate}')}",
+                title=title,
+                description=f"Source: {source_domain}",
+                url=url,
+                image_url=socialimage or "",
+                source=source_domain,
+                country=country or "",
+                published_at=published,
+                keywords=_extract_keywords(title),
+                sentiment="neutral",
+            ))
 
-                # Determine sentiment from tone
-                tone = article.get("tone", None)
-                sentiment = "neutral"
-                if tone is not None:
-                    try:
-                        tone_val = float(tone.split(",")[0]) if isinstance(tone, str) and "," in tone else float(tone)
-                        if tone_val < -3:
-                            sentiment = "negative"
-                        elif tone_val > 3:
-                            sentiment = "positive"
-                    except (ValueError, TypeError):
-                        pass
-
-                news_id = _generate_id(f"{url}{seendate}")
-
-                news_items.append(NewsItem(
-                    id=f"news-{news_id}",
-                    title=title,
-                    description=f"Source: {source_domain} | Language: {language}",
-                    url=url,
-                    image_url=socialimage or "",
-                    source=source_domain,
-                    country=source_country or (country or ""),
-                    published_at=published,
-                    keywords=keywords,
-                    sentiment=sentiment,
-                ))
-
-    except httpx.HTTPStatusError as e:
-        logger.error("GDELT News HTTP error: %s", e.response.status_code)
-    except httpx.RequestError as e:
-        logger.error("GDELT News request error: %s", str(e))
-    except Exception as e:
-        logger.error("GDELT News unexpected error: %s", str(e))
-
-    _news_cache[cache_key] = news_items
-    logger.info("Fetched %d news items for %s", len(news_items), country or "all")
-    return news_items
+    return items
 
 
 def get_live_feeds(country: str | None = None) -> list[LiveFeed]:

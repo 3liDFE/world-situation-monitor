@@ -244,11 +244,9 @@ async def get_aircraft(
     except Exception as e:
         logger.error("OpenSky API unexpected error: %s", str(e))
 
-    # If no data from API and no cache, return curated fallback
+    # No fake data - return whatever we got (empty if API failed)
     if not aircraft_list:
-        logger.info("OpenSky API unavailable, returning fallback aircraft data")
-        aircraft_list = _get_fallback_aircraft()
-        _aircraft_cache[cache_key] = aircraft_list
+        logger.warning("OpenSky API unavailable - no aircraft data. API may be rate-limiting.")
 
     return aircraft_list
 

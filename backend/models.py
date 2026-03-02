@@ -174,6 +174,7 @@ class LiveFeed(BaseModel):
     country: str
     channel_name: str
     stream_url: str
+    embed_id: str = Field(default="", description="YouTube video ID for iframe embed")
     language: str = ""
     category: str = Field(default="news", description="news, military, general")
 
