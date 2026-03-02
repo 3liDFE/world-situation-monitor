@@ -194,6 +194,38 @@ class OsintPost(BaseModel):
     classification: str = Field(default="OSINT", description="Intelligence classification level")
 
 
+class InfraOutage(BaseModel):
+    """Tech infrastructure outage or incident."""
+    id: str
+    provider: str = Field(default="", description="AWS, Azure, GCP, ISP, Cable")
+    service: str = ""
+    region: str = ""
+    lat: float = 0.0
+    lon: float = 0.0
+    country: str = ""
+    status: str = Field(default="operational", description="operational, degraded, outage, disrupted, reported, resolved")
+    title: str = ""
+    description: str = ""
+    cause: str = Field(default="unknown", description="war_related, natural_disaster, technical, cyber_attack, unknown")
+    severity: str = Field(default="info", description="info, moderate, severe, critical")
+    start_time: Optional[str] = None
+    last_update: str = ""
+    url: str = ""
+
+
+class EventChain(BaseModel):
+    """A chain of correlated events across layers."""
+    id: str
+    title: str = ""
+    events: list[dict[str, Any]] = Field(default_factory=list)
+    chain_type: str = Field(default="escalation", description="escalation, retaliation, cascade, related")
+    severity: str = "medium"
+    timestamp_start: str = ""
+    timestamp_end: str = ""
+    regions: list[str] = Field(default_factory=list)
+    summary: str = ""
+
+
 class SystemStatus(BaseModel):
     """System health and data freshness."""
     status: str = "operational"

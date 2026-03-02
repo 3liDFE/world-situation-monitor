@@ -61,6 +61,7 @@ const LAYER_CATEGORIES = [
     layers: [
       { id: 'nuclearSites', name: 'Nuclear Sites', icon: Atom, color: '#eab308' },
       { id: 'waterways', name: 'Strategic Waterways', icon: Navigation, color: '#0ea5e9' },
+      { id: 'infrastructure', name: 'Tech Infrastructure', icon: Zap, color: '#22d3ee' },
       { id: 'sanctions', name: 'Sanctions', icon: Map, color: '#f59e0b' },
     ],
   },

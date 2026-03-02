@@ -9,6 +9,8 @@ import MapContainer from './components/MapContainer';
 import LayerControl from './components/LayerControl';
 import SidePanel from './components/SidePanel';
 import useWebSocket from './hooks/useWebSocket';
+import CountryProfile from './components/CountryProfile';
+import TimelinePanel from './components/TimelinePanel';
 import {
   fetchConflicts,
   fetchAircraft,
@@ -26,6 +28,10 @@ import {
   fetchTelegramIntelligence,
   fetchOtherOsint,
   fetchAlerts,
+  fetchInfraOutages,
+  fetchDataCenters,
+  fetchUnderseaCables,
+  fetchCorrelations,
   fetchStatus,
 } from './services/api';
 
@@ -72,6 +78,10 @@ export default function App() {
   const [telegramIntelligence, setTelegramIntelligence] = useState([]);
   const [osintOther, setOsintOther] = useState([]);
   const [alerts, setAlerts] = useState([]);
+  const [infraOutages, setInfraOutages] = useState([]);
+  const [dataCenters, setDataCenters] = useState([]);
+  const [underseaCables, setUnderseaCables] = useState([]);
+  const [eventChains, setEventChains] = useState([]);
 
   // ----- UI state -----
   const [selectedEvent, setSelectedEvent] = useState(null);
@@ -84,6 +94,9 @@ export default function App() {
   const [isSidePanelOpen, setIsSidePanelOpen] = useState(true);
   const [systemStatus, setSystemStatus] = useState(null);
   const [dataFreshness, setDataFreshness] = useState({});
+  const [selectedCountryProfile, setSelectedCountryProfile] = useState(null);
+  const [isTimelineOpen, setIsTimelineOpen] = useState(false);
+  const [selectedChain, setSelectedChain] = useState(null);
 
   // ----- Map control state -----
   const [mapView, setMapView] = useState(REGION_PRESETS['Middle East']);
@@ -154,6 +167,7 @@ export default function App() {
     earthquakes: earthquakes.length,
     weather: weather.length,
     hotspots: filteredConflicts.length,
+    infrastructure: dataCenters.length + infraOutages.length,
     sanctions: 0,
     cyberAttacks: 0,
   };
@@ -295,6 +309,36 @@ export default function App() {
     }
   }, []);
 
+  const loadInfraOutages = useCallback(async () => {
+    const data = await fetchInfraOutages();
+    if (data && Array.isArray(data)) {
+      setInfraOutages(data);
+      updateFreshness('infraOutages');
+    }
+  }, []);
+
+  const loadDataCenters = useCallback(async () => {
+    const data = await fetchDataCenters();
+    if (data && Array.isArray(data)) {
+      setDataCenters(data);
+    }
+  }, []);
+
+  const loadUnderseaCables = useCallback(async () => {
+    const data = await fetchUnderseaCables();
+    if (data && Array.isArray(data)) {
+      setUnderseaCables(data);
+    }
+  }, []);
+
+  const loadCorrelations = useCallback(async () => {
+    const data = await fetchCorrelations();
+    if (data && Array.isArray(data)) {
+      setEventChains(data);
+      updateFreshness('correlations');
+    }
+  }, []);
+
   const loadStatus = useCallback(async () => {
     const data = await fetchStatus();
     if (data) {
@@ -394,6 +438,18 @@ export default function App() {
           updateFreshness('osintOther');
         }
         break;
+      case 'infra_outages':
+        if (Array.isArray(payload)) {
+          setInfraOutages(payload);
+          updateFreshness('infraOutages');
+        }
+        break;
+      case 'event_chains':
+        if (Array.isArray(payload)) {
+          setEventChains(payload);
+          updateFreshness('correlations');
+        }
+        break;
       case 'alert':
         setAlerts((prev) => [payload, ...prev].slice(0, 100));
         break;
@@ -426,6 +482,10 @@ export default function App() {
     loadTelegramIntelligence();
     loadOsintOther();
     loadAlerts();
+    loadInfraOutages();
+    loadDataCenters();
+    loadUnderseaCables();
+    loadCorrelations();
     loadStatus();
 
     // Poll intel tabs every 30s as backup to WebSocket for live updates
@@ -441,6 +501,8 @@ export default function App() {
     const conflictInterval = setInterval(() => {
       loadConflicts();
       loadMissiles();
+      loadInfraOutages();
+      loadCorrelations();
     }, 60000);
     intervalsRef.current = [statusInterval, intelInterval, conflictInterval];
 
@@ -485,6 +547,7 @@ export default function App() {
         'earthquakes',
         'weather',
         'hotspots',
+        'infrastructure',
         'sanctions',
         'cyberAttacks',
       ])
@@ -553,9 +616,15 @@ export default function App() {
         nuclearSites={nuclearSites}
         waterways={waterways}
         vessels={vessels}
+        infraOutages={infraOutages}
+        dataCenters={dataCenters}
+        underseaCables={underseaCables}
+        eventChains={eventChains}
+        selectedChain={selectedChain}
         selectedEvent={selectedEvent}
         onEventClick={handleMapEvent}
         onMapReady={handleMapReady}
+        onCountrySelect={setSelectedCountryProfile}
         initialView={REGION_PRESETS['Middle East']}
       />
 
@@ -594,6 +663,40 @@ export default function App() {
         telegramIntelligence={filteredTelegram}
         osintOther={filteredOsint}
         alerts={alerts}
+        infraOutages={infraOutages}
+        dataCenters={dataCenters}
+      />
+
+      {selectedCountryProfile && (
+        <CountryProfile
+          country={selectedCountryProfile}
+          conflicts={filteredConflicts}
+          missiles={filteredMissiles}
+          militaryBases={militaryBases}
+          nuclearSites={nuclearSites}
+          news={filteredNews}
+          xIntelligence={filteredXIntel}
+          telegramIntelligence={filteredTelegram}
+          osintOther={filteredOsint}
+          infraOutages={infraOutages}
+          onClose={() => setSelectedCountryProfile(null)}
+        />
+      )}
+
+      <TimelinePanel
+        eventChains={eventChains}
+        isOpen={isTimelineOpen}
+        onToggle={() => setIsTimelineOpen(v => !v)}
+        selectedChain={selectedChain}
+        onSelectChain={(chain) => {
+          setSelectedChain(chain);
+          if (chain && chain.events && chain.events.length > 0 && mapRef.current) {
+            const firstEvent = chain.events[0];
+            if (firstEvent.lat && firstEvent.lon) {
+              mapRef.current.flyTo({ center: [firstEvent.lon, firstEvent.lat], zoom: 6, duration: 1500 });
+            }
+          }
+        }}
       />
     </div>
   );

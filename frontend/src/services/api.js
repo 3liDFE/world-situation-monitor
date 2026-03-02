@@ -138,6 +138,26 @@ export async function fetchAlerts() {
   return request('/api/alerts', {}, []);
 }
 
+/** Fetch infrastructure outages. */
+export async function fetchInfraOutages() {
+  return request('/api/infra/outages', {}, []);
+}
+
+/** Fetch data center locations with status. */
+export async function fetchDataCenters() {
+  return request('/api/infra/datacenters', {}, []);
+}
+
+/** Fetch undersea cable status. */
+export async function fetchUnderseaCables() {
+  return request('/api/infra/cables', {}, []);
+}
+
+/** Fetch correlated event chains. */
+export async function fetchCorrelations() {
+  return request('/api/correlations', {}, []);
+}
+
 /** Fetch all layer data in a single batch request. */
 export async function fetchAllLayers() {
   return request('/api/layers/all', {}, null);
@@ -173,4 +193,8 @@ export default {
   fetchAllLayers,
   fetchStatus,
   fetchSanctions,
+  fetchInfraOutages,
+  fetchDataCenters,
+  fetchUnderseaCables,
+  fetchCorrelations,
 };

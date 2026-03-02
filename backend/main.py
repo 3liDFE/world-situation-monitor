@@ -21,7 +21,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 from models import (
     Aircraft,
+    EventChain,
     GeoEvent,
+    InfraOutage,
     LiveFeed,
     MilitaryBase,
     MissileEvent,
@@ -36,7 +38,7 @@ from models import (
 )
 from services import gdelt_service, opensky_service, usgs_service, weather_service
 from services import military_data, news_service, ai_service, ais_service
-from services import database, osint_service, aircraft_db
+from services import database, osint_service, aircraft_db, tech_infra_service, correlation_service
 
 # ============================================================================
 # Logging configuration
@@ -71,6 +73,10 @@ _data_store: dict[str, object] = {
     "telegram_intelligence": [],
     "osint_other": [],
     "alerts": [],
+    "infra_outages": [],
+    "data_centers": [],
+    "undersea_cables": [],
+    "event_chains": [],
     "last_update": {},
     "errors": [],
 }
@@ -347,6 +353,46 @@ async def refresh_osint():
         _record_error(error_msg)
 
 
+async def refresh_tech_infra():
+    """Refresh tech infrastructure status - cloud outages, cables, data centers."""
+    try:
+        infra = await tech_infra_service.get_all_infra_status()
+        _data_store["infra_outages"] = infra.get("outages", [])
+        _data_store["data_centers"] = infra.get("data_centers", [])
+        _data_store["undersea_cables"] = infra.get("cables", [])
+        _data_store["last_update"]["infra"] = datetime.now(timezone.utc)
+        await manager.broadcast("infra_outages", infra.get("outages", []))
+        logger.info(
+            "Refreshed tech infra: %d outages, %d DCs, %d cables",
+            len(infra.get("outages", [])),
+            len(infra.get("data_centers", [])),
+            len(infra.get("cables", [])),
+        )
+    except Exception as e:
+        error_msg = f"Failed to refresh tech infra: {e}"
+        logger.error(error_msg)
+        _record_error(error_msg)
+
+
+async def refresh_correlations():
+    """Refresh event correlation chains."""
+    try:
+        chains = correlation_service.correlate_events(
+            conflicts=_data_store.get("conflicts", []),
+            missiles=_data_store.get("missiles", []),
+            news=_data_store.get("news", []),
+            infra_outages=_data_store.get("infra_outages", []),
+        )
+        _data_store["event_chains"] = chains
+        _data_store["last_update"]["event_chains"] = datetime.now(timezone.utc)
+        await manager.broadcast("event_chains", chains)
+        logger.info("Refreshed event correlations: %d chains", len(chains))
+    except Exception as e:
+        error_msg = f"Failed to refresh correlations: {e}"
+        logger.error(error_msg)
+        _record_error(error_msg)
+
+
 def _record_error(msg: str):
     """Record an error message, keeping only last 50."""
     errors = _data_store.get("errors", [])
@@ -478,6 +524,7 @@ async def initial_data_load():
         refresh_weather(),
         refresh_news(),
         refresh_osint(),
+        refresh_tech_infra(),
     ]
     try:
         await asyncio.wait_for(
@@ -495,6 +542,12 @@ async def initial_data_load():
 
     # Generate initial alerts from the most critical events loaded at startup
     await _generate_initial_alerts()
+
+    # Generate initial event correlations
+    try:
+        await asyncio.wait_for(refresh_correlations(), timeout=5.0)
+    except asyncio.TimeoutError:
+        logger.warning("Event correlation timed out during startup")
 
     logger.info("Initial data load complete.")
 
@@ -600,6 +653,8 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(refresh_vessels, "interval", seconds=30, id="vessels")
     scheduler.add_job(refresh_ai_insights, "interval", seconds=settings.SCHEDULER_AI_INSIGHTS, id="ai_insights")
     scheduler.add_job(refresh_osint, "interval", seconds=60, id="osint")
+    scheduler.add_job(refresh_tech_infra, "interval", seconds=120, id="tech_infra")
+    scheduler.add_job(refresh_correlations, "interval", seconds=120, id="correlations")
 
     # Daily database cleanup
     scheduler.add_job(
@@ -848,6 +903,42 @@ async def get_alerts():
     return _data_store.get("alerts", [])
 
 
+@app.get("/api/infra/outages", tags=["Infrastructure"])
+async def get_infra_outages():
+    """Get current infrastructure outages and incidents."""
+    data = _data_store.get("infra_outages", [])
+    if not data:
+        data = await tech_infra_service.get_infra_outages()
+        _data_store["infra_outages"] = data
+    return data
+
+
+@app.get("/api/infra/datacenters", tags=["Infrastructure"])
+async def get_data_centers():
+    """Get monitored data center locations with current status."""
+    data = _data_store.get("data_centers", [])
+    if not data:
+        data = tech_infra_service.get_data_centers()
+        _data_store["data_centers"] = data
+    return data
+
+
+@app.get("/api/infra/cables", tags=["Infrastructure"])
+async def get_undersea_cables():
+    """Get undersea cable landing points with status."""
+    data = _data_store.get("undersea_cables", [])
+    if not data:
+        data = tech_infra_service.get_undersea_cables()
+        _data_store["undersea_cables"] = data
+    return data
+
+
+@app.get("/api/correlations", tags=["Analysis"])
+async def get_correlations():
+    """Get correlated event chains."""
+    return _data_store.get("event_chains", [])
+
+
 @app.get("/api/all-layers", tags=["Combined"])
 async def get_all_layers():
     """
@@ -1010,7 +1101,8 @@ async def websocket_endpoint(websocket: WebSocket):
             "available_layers": [
                 "conflicts", "aircraft", "vessels", "missiles", "earthquakes",
                 "weather", "news", "ai_insights", "x_intelligence",
-                "telegram_intelligence", "osint_other", "all"
+                "telegram_intelligence", "osint_other", "infra_outages",
+                "event_chains", "all"
             ],
             "timestamp": datetime.now(timezone.utc).isoformat(),
         })

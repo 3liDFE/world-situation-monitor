@@ -25,6 +25,7 @@ import {
   Crosshair,
   Hash,
   Send,
+  Server,
 } from 'lucide-react';
 
 const TABS = [
@@ -35,6 +36,7 @@ const TABS = [
   { id: 'insights', label: 'AI Intel', icon: Brain },
   { id: 'news', label: 'News', icon: Newspaper },
   { id: 'alerts', label: 'Alerts', icon: Bell },
+  { id: 'infra', label: 'Infra', icon: Server },
 ];
 
 const COUNTRIES = [
@@ -58,6 +60,8 @@ export default function SidePanel({
   telegramIntelligence = [],
   osintOther = [],
   alerts,
+  infraOutages = [],
+  dataCenters = [],
 }) {
   const alertsRef = useRef(null);
   const [unreadAlerts, setUnreadAlerts] = useState(0);
@@ -155,6 +159,9 @@ export default function SidePanel({
           )}
           {activeTab === 'alerts' && (
             <AlertsTab alerts={alerts} />
+          )}
+          {activeTab === 'infra' && (
+            <InfraTab outages={infraOutages} dataCenters={dataCenters} />
           )}
         </div>
       </div>
@@ -715,6 +722,138 @@ function ExpandableText({ text, maxLength = 150 }) {
       >
         {expanded ? 'Show less' : 'Read more'}
       </button>
+    </div>
+  );
+}
+
+// =============================================
+// INFRASTRUCTURE TAB
+// =============================================
+
+function InfraTab({ outages, dataCenters }) {
+  const PROVIDER_COLORS = { AWS: '#f97316', Azure: '#3b82f6', GCP: '#22c55e', Oracle: '#ef4444', Alibaba: '#f59e0b' };
+  const STATUS_COLORS = { operational: '#22c55e', degraded: '#f59e0b', outage: '#ef4444', disrupted: '#ef4444', reported: '#f97316' };
+  const CAUSE_LABELS = { war_related: 'WAR-RELATED', cyber_attack: 'CYBER', natural_disaster: 'NATURAL', technical: 'TECHNICAL' };
+  const CAUSE_COLORS = { war_related: '#ef4444', cyber_attack: '#a855f7', natural_disaster: '#f59e0b', technical: '#3b82f6' };
+
+  // Group data centers by provider
+  const providers = {};
+  (dataCenters || []).forEach(dc => {
+    if (!providers[dc.provider]) providers[dc.provider] = { status: 'operational', count: 0, incidents: 0 };
+    providers[dc.provider].count++;
+    if (dc.status === 'outage' || dc.status === 'disrupted') {
+      providers[dc.provider].status = 'outage';
+      providers[dc.provider].incidents += dc.active_incidents || 0;
+    } else if (dc.status === 'degraded' && providers[dc.provider].status !== 'outage') {
+      providers[dc.provider].status = 'degraded';
+      providers[dc.provider].incidents += dc.active_incidents || 0;
+    }
+  });
+
+  return (
+    <div>
+      <div style={{ padding: '8px 12px', fontSize: 10, color: 'var(--text-dim)', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <Server size={12} style={{ color: '#22d3ee' }} />
+        <span>Cloud & infrastructure status monitoring</span>
+      </div>
+
+      {/* Provider status cards */}
+      <div style={{ padding: '8px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+        {Object.entries(providers).map(([name, info]) => (
+          <div key={name} style={{
+            background: 'rgba(255,255,255,0.03)',
+            border: `1px solid ${STATUS_COLORS[info.status] || 'var(--border-color)'}33`,
+            borderRadius: 6,
+            padding: '8px 10px',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: PROVIDER_COLORS[name] || '#fff' }}>{name}</span>
+              <span style={{
+                fontSize: 8,
+                fontWeight: 700,
+                color: STATUS_COLORS[info.status],
+                background: `${STATUS_COLORS[info.status]}15`,
+                padding: '1px 5px',
+                borderRadius: 3,
+                textTransform: 'uppercase',
+              }}>
+                {info.status}
+              </span>
+            </div>
+            <div style={{ fontSize: 9, color: 'var(--text-dim)' }}>
+              {info.count} regions{info.incidents > 0 ? ` | ${info.incidents} incidents` : ''}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Active outages */}
+      <div style={{ padding: '4px 12px 4px', fontSize: 10, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+        Active Incidents ({(outages || []).length})
+      </div>
+
+      {(!outages || outages.length === 0) ? (
+        <div className="no-data" style={{ padding: '20px 12px' }}>
+          <Server size={24} className="no-data-icon" style={{ color: '#22c55e' }} />
+          <div className="no-data-text" style={{ color: '#22c55e' }}>All Systems Operational</div>
+          <div className="no-data-sub">No active infrastructure incidents</div>
+        </div>
+      ) : (
+        outages.map((outage, idx) => (
+          <div key={outage.id || idx} className="feed-item" style={{ borderLeft: `3px solid ${STATUS_COLORS[outage.status] || '#3b82f6'}` }}
+            onClick={() => { if (outage.url) window.open(outage.url, '_blank', 'noopener'); }}
+          >
+            <div className="feed-item-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: PROVIDER_COLORS[outage.provider] || '#fff' }}>
+                {outage.provider} {outage.service ? `- ${outage.service}` : ''}
+              </span>
+              <span style={{
+                fontSize: 8,
+                fontWeight: 700,
+                color: STATUS_COLORS[outage.status] || '#3b82f6',
+                background: `${STATUS_COLORS[outage.status] || '#3b82f6'}15`,
+                padding: '1px 5px',
+                borderRadius: 3,
+              }}>
+                {(outage.status || 'reported').toUpperCase()}
+              </span>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.4, padding: '2px 0' }}>
+              {outage.title}
+            </div>
+            <div className="feed-item-category" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              {outage.cause && CAUSE_LABELS[outage.cause] && (
+                <span style={{
+                  fontSize: 8,
+                  fontWeight: 700,
+                  color: CAUSE_COLORS[outage.cause] || '#6b7280',
+                  background: `${CAUSE_COLORS[outage.cause] || '#6b7280'}15`,
+                  padding: '1px 5px',
+                  borderRadius: 3,
+                  border: `1px solid ${CAUSE_COLORS[outage.cause] || '#6b7280'}33`,
+                }}>
+                  {CAUSE_LABELS[outage.cause]}
+                </span>
+              )}
+              {outage.severity && (
+                <SeverityBadge severity={outage.severity} />
+              )}
+              {outage.country && (
+                <span style={{ fontSize: 9, color: 'var(--text-dim)' }}>
+                  <MapPin size={9} style={{ verticalAlign: 'middle', marginRight: 2 }} />
+                  {outage.country}
+                </span>
+              )}
+              {outage.start_time && (
+                <span style={{ fontSize: 9, color: 'var(--text-dim)', marginLeft: 'auto' }}>
+                  <Clock size={9} style={{ verticalAlign: 'middle', marginRight: 2 }} />
+                  {timeAgo(outage.start_time)}
+                </span>
+              )}
+            </div>
+          </div>
+        ))
+      )}
     </div>
   );
 }

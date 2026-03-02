@@ -30,6 +30,8 @@ import {
   nuclearSitesToGeoJSON,
   waterwaysToGeoJSON,
   vesselsToGeoJSON,
+  infraToGeoJSON,
+  createInfraIcon,
 } from '../utils/mapStyle';
 
 // Layer ID constants for source and layer management
@@ -47,6 +49,9 @@ const SOURCES = {
   nuclearSites: 'nuclear-sites-source',
   waterways: 'waterways-source',
   hotspots: 'hotspots-source',
+  infrastructure: 'infrastructure-source',
+  countryBoundaries: 'country-boundaries-source',
+  correlationHighlight: 'correlation-highlight-source',
 };
 
 const LAYERS = {
@@ -74,6 +79,14 @@ const LAYERS = {
   waterwaysLine: 'waterways-line-layer',
   waterwaysLabel: 'waterways-label-layer',
   hotspotHeat: 'hotspots-heatmap-layer',
+  infraIcon: 'infrastructure-icon-layer',
+  infraLabels: 'infrastructure-labels-layer',
+  infraGlow: 'infrastructure-glow-layer',
+  countryFill: 'country-fill-layer',
+  countryHighlight: 'country-highlight-layer',
+  countryHighlightOutline: 'country-highlight-outline-layer',
+  correlationCircle: 'correlation-circle-layer',
+  correlationLine: 'correlation-line-layer',
 };
 
 // Map layer IDs to the parent toggle layer names
@@ -89,6 +102,7 @@ const LAYER_GROUP_MAP = {
   nuclearSites: [LAYERS.nuclearSitesIcon, LAYERS.nuclearSitesGlow],
   waterways: [LAYERS.waterwaysLine, LAYERS.waterwaysLabel],
   hotspots: [LAYERS.hotspotHeat],
+  infrastructure: [LAYERS.infraIcon, LAYERS.infraLabels, LAYERS.infraGlow],
 };
 
 export default function MapContainer({
@@ -105,7 +119,13 @@ export default function MapContainer({
   selectedEvent,
   onEventClick,
   onMapReady,
+  onCountrySelect,
   initialView,
+  infraOutages,
+  dataCenters,
+  underseaCables,
+  eventChains,
+  selectedChain,
 }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
@@ -117,6 +137,7 @@ export default function MapContainer({
   const animFrameRef = useRef(null);
   const prevAircraftRef = useRef({}); // previous positions for interpolation
   const interpStartRef = useRef(0); // timestamp of last data update
+  const pendingUpdatesRef = useRef({}); // queued source updates before map ready
 
   // =============================================
   // MAP INITIALIZATION
@@ -159,6 +180,25 @@ export default function MapContainer({
       addAllSources(map);
       addAllLayers(map);
 
+      // Flush any data updates that arrived before the map was ready
+      const pending = pendingUpdatesRef.current;
+      Object.entries(pending).forEach(([sid, geojson]) => {
+        const source = map.getSource(sid);
+        if (source) {
+          source.setData(geojson);
+        }
+      });
+      pendingUpdatesRef.current = {};
+
+      // Load country boundaries for click detection
+      fetch('https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson')
+        .then(r => r.json())
+        .then(geojson => {
+          const src = map.getSource(SOURCES.countryBoundaries);
+          if (src) src.setData(geojson);
+        })
+        .catch(() => {}); // Non-critical
+
       if (onMapReady) {
         onMapReady(map);
       }
@@ -178,6 +218,7 @@ export default function MapContainer({
       LAYERS.nuclearSitesIcon,
       LAYERS.weatherIcon,
       LAYERS.waterwaysLine,
+      LAYERS.infraIcon,
     ];
 
     interactiveLayers.forEach((layerId) => {
@@ -257,6 +298,33 @@ export default function MapContainer({
       });
     });
 
+    // Country boundary click handler
+    const COUNTRY_NAME_MAP = {
+      'United Arab Emirates': 'UAE',
+      'Syrian Arab Republic': 'Syria',
+      'Russian Federation': 'Russia',
+      "Iran (Islamic Republic of)": 'Iran',
+      'Republic of Turkey': 'Turkey',
+      'Hashemite Kingdom of Jordan': 'Jordan',
+      'State of Palestine': 'Palestine',
+    };
+    map.on('click', LAYERS.countryFill, (e) => {
+      if (e.features && e.features.length > 0 && onCountrySelect) {
+        const rawName = e.features[0].properties.ADMIN || e.features[0].properties.name || '';
+        const countryName = COUNTRY_NAME_MAP[rawName] || rawName;
+        onCountrySelect(countryName);
+        // Highlight the selected country
+        map.setFilter(LAYERS.countryHighlight, ['==', ['get', 'ADMIN'], e.features[0].properties.ADMIN]);
+        map.setFilter(LAYERS.countryHighlightOutline, ['==', ['get', 'ADMIN'], e.features[0].properties.ADMIN]);
+      }
+    });
+    map.on('mouseenter', LAYERS.countryFill, () => {
+      map.getCanvas().style.cursor = 'pointer';
+    });
+    map.on('mouseleave', LAYERS.countryFill, () => {
+      map.getCanvas().style.cursor = '';
+    });
+
     return () => {
       readyRef.current = false;
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
@@ -281,6 +349,7 @@ export default function MapContainer({
       { id: 'conflict-icon', fn: createConflictIcon, args: [24, LAYER_COLORS.conflict] },
       { id: 'missile-icon', fn: createMissileIcon, args: [22, LAYER_COLORS.missile] },
       { id: 'weather-icon', fn: createWeatherIcon, args: [22, LAYER_COLORS.weather] },
+      { id: 'infra-icon', fn: createInfraIcon, args: [24, LAYER_COLORS.infrastructure] },
     ];
 
     icons.forEach(({ id, fn, args }) => {
@@ -872,6 +941,140 @@ export default function MapContainer({
         },
       });
     }
+
+    // --- INFRASTRUCTURE ---
+    if (!map.getLayer(LAYERS.infraGlow)) {
+      map.addLayer({
+        id: LAYERS.infraGlow,
+        type: 'circle',
+        source: SOURCES.infrastructure,
+        paint: {
+          'circle-radius': 18,
+          'circle-color': [
+            'match', ['get', 'status'],
+            'outage', '#ef4444',
+            'disrupted', '#ef4444',
+            'degraded', '#f59e0b',
+            'reported', '#f97316',
+            LAYER_COLORS.infrastructure,
+          ],
+          'circle-opacity': 0.1,
+          'circle-blur': 0.8,
+        },
+      });
+    }
+
+    if (!map.getLayer(LAYERS.infraIcon)) {
+      map.addLayer({
+        id: LAYERS.infraIcon,
+        type: 'symbol',
+        source: SOURCES.infrastructure,
+        layout: {
+          'icon-image': 'infra-icon',
+          'icon-size': [
+            'interpolate', ['linear'], ['zoom'],
+            3, 0.5,
+            6, 0.75,
+            10, 1,
+          ],
+          'icon-allow-overlap': true,
+        },
+      });
+    }
+
+    if (!map.getLayer(LAYERS.infraLabels)) {
+      map.addLayer({
+        id: LAYERS.infraLabels,
+        type: 'symbol',
+        source: SOURCES.infrastructure,
+        layout: {
+          'text-field': ['get', 'name'],
+          'text-size': 9,
+          'text-font': ['Open Sans Regular', 'Arial Unicode MS Regular'],
+          'text-offset': [0, 1.4],
+          'text-anchor': 'top',
+          'text-allow-overlap': false,
+        },
+        paint: {
+          'text-color': LAYER_COLORS.infrastructure,
+          'text-halo-color': '#0a0e17',
+          'text-halo-width': 1.2,
+          'text-opacity': 0.8,
+        },
+        minzoom: 5,
+      });
+    }
+
+    // --- COUNTRY BOUNDARIES (transparent fill for click detection) ---
+    if (!map.getLayer(LAYERS.countryHighlight)) {
+      map.addLayer({
+        id: LAYERS.countryHighlight,
+        type: 'fill',
+        source: SOURCES.countryBoundaries,
+        paint: {
+          'fill-color': '#3b82f6',
+          'fill-opacity': 0.12,
+        },
+        filter: ['==', ['get', 'ADMIN'], ''],
+      });
+    }
+
+    if (!map.getLayer(LAYERS.countryHighlightOutline)) {
+      map.addLayer({
+        id: LAYERS.countryHighlightOutline,
+        type: 'line',
+        source: SOURCES.countryBoundaries,
+        paint: {
+          'line-color': '#3b82f6',
+          'line-width': 2,
+          'line-opacity': 0.5,
+        },
+        filter: ['==', ['get', 'ADMIN'], ''],
+      });
+    }
+
+    if (!map.getLayer(LAYERS.countryFill)) {
+      map.addLayer({
+        id: LAYERS.countryFill,
+        type: 'fill',
+        source: SOURCES.countryBoundaries,
+        paint: {
+          'fill-color': 'transparent',
+          'fill-opacity': 0,
+        },
+      });
+    }
+
+    // --- CORRELATION HIGHLIGHT ---
+    if (!map.getLayer(LAYERS.correlationCircle)) {
+      map.addLayer({
+        id: LAYERS.correlationCircle,
+        type: 'circle',
+        source: SOURCES.correlationHighlight,
+        paint: {
+          'circle-radius': 15,
+          'circle-color': '#a855f7',
+          'circle-opacity': 0.25,
+          'circle-stroke-width': 2,
+          'circle-stroke-color': '#a855f7',
+        },
+      });
+    }
+
+    if (!map.getLayer(LAYERS.correlationLine)) {
+      map.addLayer({
+        id: LAYERS.correlationLine,
+        type: 'line',
+        source: SOURCES.correlationHighlight,
+        filter: ['==', '$type', 'LineString'],
+        paint: {
+          'line-color': '#a855f7',
+          'line-width': 2,
+          'line-dasharray': [3, 2],
+          'line-opacity': 0.6,
+        },
+      });
+    }
   }
 
   // =============================================
@@ -881,7 +1084,11 @@ export default function MapContainer({
 
   const updateSource = useCallback((sourceId, geojson) => {
     const map = mapRef.current;
-    if (!map || !readyRef.current) return;
+    if (!map || !readyRef.current) {
+      // Queue the update for when the map becomes ready
+      pendingUpdatesRef.current[sourceId] = geojson;
+      return;
+    }
     const source = map.getSource(sourceId);
     if (source) {
       source.setData(geojson);
@@ -1048,6 +1255,42 @@ export default function MapContainer({
     updateSource(SOURCES.vessels, vesselsToGeoJSON(vessels));
   }, [vessels, updateSource]);
 
+  // Infrastructure (data centers + outages + cables)
+  useEffect(() => {
+    const geojson = infraToGeoJSON(dataCenters, infraOutages, underseaCables);
+    updateSource(SOURCES.infrastructure, geojson);
+  }, [dataCenters, infraOutages, underseaCables, updateSource]);
+
+  // Event correlation highlights
+  useEffect(() => {
+    if (!selectedChain || !selectedChain.events) {
+      updateSource(SOURCES.correlationHighlight, EMPTY_GEOJSON);
+      return;
+    }
+    const features = [];
+    const chainEvents = selectedChain.events.filter(e => e.lat && e.lon);
+    // Add circles for each event
+    chainEvents.forEach(e => {
+      features.push({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [e.lon, e.lat] },
+        properties: { id: e.id, title: e.title, type: e.type },
+      });
+    });
+    // Add connection lines between sequential events
+    if (chainEvents.length >= 2) {
+      features.push({
+        type: 'Feature',
+        geometry: {
+          type: 'LineString',
+          coordinates: chainEvents.map(e => [e.lon, e.lat]),
+        },
+        properties: { id: selectedChain.id },
+      });
+    }
+    updateSource(SOURCES.correlationHighlight, { type: 'FeatureCollection', features });
+  }, [selectedChain, updateSource]);
+
   // =============================================
   // LAYER VISIBILITY
   // =============================================
@@ -1176,6 +1419,20 @@ function buildPopupHTML(props) {
         <div class="event-popup-meta-row"><span class="event-popup-meta-label">Importance:</span><span class="event-popup-meta-value">${props.strategic_importance || 'N/A'}</span></div>
       `;
       break;
+    case 'data_center':
+    case 'infra_outage':
+    case 'undersea_cable': {
+      const statusColor = { operational: '#22c55e', degraded: '#f59e0b', outage: '#ef4444', disrupted: '#ef4444' }[props.status] || '#3b82f6';
+      const causeLabel = { war_related: 'WAR-RELATED', cyber_attack: 'CYBER ATTACK', natural_disaster: 'NATURAL', technical: 'TECHNICAL' }[props.cause] || '';
+      meta = `
+        <div class="event-popup-meta-row"><span class="event-popup-meta-label">Provider:</span><span class="event-popup-meta-value">${props.provider || 'N/A'}</span></div>
+        <div class="event-popup-meta-row"><span class="event-popup-meta-label">Status:</span><span class="event-popup-meta-value" style="color:${statusColor};font-weight:600">${(props.status || 'unknown').toUpperCase()}</span></div>
+        ${props.country ? `<div class="event-popup-meta-row"><span class="event-popup-meta-label">Country:</span><span class="event-popup-meta-value">${props.country}</span></div>` : ''}
+        ${causeLabel ? `<div class="event-popup-meta-row"><span class="event-popup-meta-label">Cause:</span><span class="event-popup-meta-value">${causeLabel}</span></div>` : ''}
+        ${props.connects ? `<div class="event-popup-meta-row"><span class="event-popup-meta-label">Route:</span><span class="event-popup-meta-value" style="font-size:10px">${props.connects}</span></div>` : ''}
+      `;
+      break;
+    }
     default:
       break;
   }

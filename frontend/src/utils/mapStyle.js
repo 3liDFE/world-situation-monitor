@@ -29,6 +29,8 @@ export const LAYER_COLORS = {
   hotspot: '#ef4444',
   waterway: '#0ea5e9',
   sanctions: '#f59e0b',
+  infrastructure: '#22d3ee',
+  cable: '#06b6d4',
 };
 
 // =============================================
@@ -460,6 +462,73 @@ export function createPulsingDot(map, size = 100, color = [59, 130, 246]) {
   };
 }
 
+/**
+ * Create an infrastructure/server icon (server rack shape).
+ */
+export function createInfraIcon(size = 22, color = '#22d3ee') {
+  const canvas = document.createElement('canvas');
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = size * ratio;
+  canvas.height = size * ratio;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(ratio, ratio);
+
+  const cx = size / 2;
+  const cy = size / 2;
+  const w = size * 0.5;
+  const h = size * 0.65;
+
+  // Server rack outline
+  ctx.fillStyle = color;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 5;
+
+  const x = cx - w / 2;
+  const y = cy - h / 2;
+  const r = 2;
+
+  // Rounded rectangle
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+  ctx.fill();
+
+  // Server rack slots (3 horizontal lines)
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = '#0a0e17';
+  ctx.lineWidth = 1.5;
+  for (let i = 1; i <= 2; i++) {
+    const ly = y + (h / 3) * i;
+    ctx.beginPath();
+    ctx.moveTo(x + 2, ly);
+    ctx.lineTo(x + w - 2, ly);
+    ctx.stroke();
+  }
+
+  // LED dots
+  ctx.fillStyle = '#22c55e';
+  for (let i = 0; i < 3; i++) {
+    const dy = y + (h / 3) * i + h / 6;
+    ctx.beginPath();
+    ctx.arc(x + w - 4, dy, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  return {
+    width: canvas.width,
+    height: canvas.height,
+    data: ctx.getImageData(0, 0, canvas.width, canvas.height).data,
+  };
+}
+
 // =============================================
 // GEOJSON CONVERSION HELPERS
 // =============================================
@@ -837,6 +906,72 @@ export function vesselsToGeoJSON(vessels) {
         },
       })),
   };
+}
+
+/**
+ * Convert infrastructure items (data centers + outages + cables) to GeoJSON.
+ */
+export function infraToGeoJSON(dataCenters, outages, cables) {
+  const features = [];
+
+  (dataCenters || []).forEach((dc) => {
+    features.push({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [dc.lon, dc.lat] },
+      properties: {
+        id: dc.id,
+        name: dc.name,
+        title: dc.name,
+        type: 'data_center',
+        provider: dc.provider || '',
+        region: dc.region || '',
+        country: dc.country || '',
+        status: dc.status || 'operational',
+        active_incidents: dc.active_incidents || 0,
+        description: `${dc.provider} ${dc.region} - ${dc.status}`,
+      },
+    });
+  });
+
+  (outages || []).forEach((o) => {
+    if (o.lat && o.lon) {
+      features.push({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [o.lon, o.lat] },
+        properties: {
+          id: o.id,
+          name: o.title || 'Outage',
+          title: o.title || 'Infrastructure Outage',
+          type: 'infra_outage',
+          provider: o.provider || '',
+          status: o.status || 'reported',
+          cause: o.cause || 'unknown',
+          severity: o.severity || 'info',
+          country: o.country || '',
+          description: o.description || '',
+        },
+      });
+    }
+  });
+
+  (cables || []).forEach((c) => {
+    features.push({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [c.lon, c.lat] },
+      properties: {
+        id: c.id,
+        name: c.name,
+        title: c.name,
+        type: 'undersea_cable',
+        status: c.status || 'operational',
+        description: c.description || '',
+        connects: c.connects || '',
+        country: c.country || '',
+      },
+    });
+  });
+
+  return { type: 'FeatureCollection', features };
 }
 
 /**
