@@ -7,10 +7,10 @@
 import React, { useEffect, useRef } from 'react';
 
 // Set your AdSense publisher ID here once approved
-const ADSENSE_PUB_ID = 'ca-pub-XXXXXXXXXXXXXXXX';
+const ADSENSE_PUB_ID = 'ca-pub-4832332832155458';
 
 // Don't render ads if publisher ID isn't configured yet
-const isConfigured = ADSENSE_PUB_ID !== 'ca-pub-XXXXXXXXXXXXXXXX';
+const isConfigured = ADSENSE_PUB_ID !== 'ca-pub-4832332832155458';
 
 /**
  * Ad slot formats:
