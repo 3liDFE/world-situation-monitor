@@ -70,6 +70,7 @@ _data_store: dict[str, object] = {
     "x_intelligence": [],
     "telegram_intelligence": [],
     "osint_other": [],
+    "alerts": [],
     "last_update": {},
     "errors": [],
 }
@@ -437,7 +438,13 @@ async def _generate_alerts_from_data():
                 "region": location,
             })
 
-    # Broadcast max 5 new alerts at a time (prevent spam)
+    # Store alerts in data store (persist for HTTP API)
+    stored_alerts = _data_store.get("alerts", [])
+    for alert in new_alerts:
+        stored_alerts.insert(0, alert)  # newest first
+    _data_store["alerts"] = stored_alerts[:100]  # keep last 100
+
+    # Broadcast new alerts via WebSocket
     for alert in new_alerts[:5]:
         await manager.broadcast("alert", alert)
 
@@ -486,7 +493,81 @@ async def initial_data_load():
     except asyncio.TimeoutError:
         logger.warning("AI insights generation timed out during startup")
 
+    # Generate initial alerts from the most critical events loaded at startup
+    await _generate_initial_alerts()
+
     logger.info("Initial data load complete.")
+
+
+async def _generate_initial_alerts():
+    """Generate alerts from the most critical events already in the data store on startup."""
+    now = datetime.now(timezone.utc)
+    initial_alerts: list[dict] = []
+
+    ALERT_KEYWORDS = {
+        "breaking", "killed", "casualties", "intercepted", "launched",
+        "struck", "explosion", "declared", "invaded", "emergency",
+        "escalation", "retaliation", "war", "ceasefire", "shot down",
+    }
+
+    # Critical conflicts
+    conflicts = _data_store.get("conflicts", [])
+    for c in conflicts:
+        severity = c.severity if hasattr(c, "severity") else c.get("severity", "")
+        title = c.title if hasattr(c, "title") else c.get("title", "")
+        if severity != "critical":
+            continue
+        title_lower = title.lower()
+        if not any(kw in title_lower for kw in ALERT_KEYWORDS):
+            continue
+        metadata = c.metadata if hasattr(c, "metadata") else c.get("metadata", {})
+        location = metadata.get("location", "") if isinstance(metadata, dict) else ""
+        ts = c.timestamp if hasattr(c, "timestamp") else c.get("timestamp", now)
+        initial_alerts.append({
+            "id": f"alert-init-{c.id if hasattr(c, 'id') else c.get('id', '')}",
+            "title": f"BREAKING: {title[:120]}",
+            "description": f"Source: {c.source if hasattr(c, 'source') else c.get('source', 'News')}" + (f" | {location}" if location else ""),
+            "severity": "critical",
+            "type": metadata.get("event_type", "conflict") if isinstance(metadata, dict) else "conflict",
+            "timestamp": ts.isoformat() if hasattr(ts, "isoformat") else str(ts),
+            "region": location,
+        })
+
+    # Critical missile events (confirmed/intercepted only)
+    missiles = _data_store.get("missiles", [])
+    for m in missiles:
+        status = m.status if hasattr(m, "status") else m.get("status", "")
+        title = m.title if hasattr(m, "title") else m.get("title", "")
+        if status not in ("confirmed", "intercepted"):
+            continue
+        metadata = m.metadata if hasattr(m, "metadata") else m.get("metadata", {})
+        location = metadata.get("location", "") if isinstance(metadata, dict) else ""
+        ts = m.timestamp if hasattr(m, "timestamp") else m.get("timestamp", now)
+        initial_alerts.append({
+            "id": f"alert-init-{m.id if hasattr(m, 'id') else m.get('id', '')}",
+            "title": f"MISSILE/STRIKE: {title[:120]}",
+            "description": f"Status: {status.upper()}" + (f" | {location}" if location else ""),
+            "severity": "critical" if status == "confirmed" else "high",
+            "type": "missile",
+            "timestamp": ts.isoformat() if hasattr(ts, "isoformat") else str(ts),
+            "region": location,
+        })
+
+    # Deduplicate by title prefix
+    seen_titles: set[str] = set()
+    unique_alerts: list[dict] = []
+    for alert in initial_alerts:
+        key = alert["title"].lower()[:50]
+        if key not in seen_titles:
+            seen_titles.add(key)
+            unique_alerts.append(alert)
+
+    # Sort by timestamp newest first, keep top 20
+    unique_alerts.sort(key=lambda a: a.get("timestamp", ""), reverse=True)
+    unique_alerts = unique_alerts[:20]
+
+    _data_store["alerts"] = unique_alerts
+    logger.info("Generated %d initial alerts from critical events", len(unique_alerts))
 
 
 # ============================================================================
@@ -759,6 +840,12 @@ async def get_other_osint():
         data = await osint_service.get_other_osint()
         _data_store["osint_other"] = data
     return data
+
+
+@app.get("/api/alerts", tags=["Alerts"])
+async def get_alerts():
+    """Get stored alerts (newest first)."""
+    return _data_store.get("alerts", [])
 
 
 @app.get("/api/all-layers", tags=["Combined"])

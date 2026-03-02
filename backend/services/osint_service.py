@@ -99,8 +99,8 @@ async def get_x_intelligence() -> list[dict]:
     except Exception as e:
         logger.warning("News-based X intel failed: %s", e)
 
-    # Sort by importance then time, keep top 25 quality posts
-    posts.sort(key=lambda p: (p.get("importance", 0), p.get("timestamp", "")), reverse=True)
+    # Sort by time (newest first), importance only used as filter threshold
+    posts.sort(key=lambda p: p.get("timestamp", ""), reverse=True)
     posts = posts[:25]
 
     _x_cache[cache_key] = posts
@@ -189,8 +189,8 @@ async def get_telegram_intelligence() -> list[dict]:
         except Exception as e:
             logger.warning("News-based Telegram intel failed: %s", e)
 
-    # Sort by importance then timestamp, keep top quality
-    posts.sort(key=lambda p: (p.get("importance", 0), p.get("timestamp", "")), reverse=True)
+    # Sort by time (newest first), importance only used as filter threshold
+    posts.sort(key=lambda p: p.get("timestamp", ""), reverse=True)
     posts = posts[:30]
 
     _telegram_cache[cache_key] = posts

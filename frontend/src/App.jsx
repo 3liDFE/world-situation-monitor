@@ -25,6 +25,7 @@ import {
   fetchXIntelligence,
   fetchTelegramIntelligence,
   fetchOtherOsint,
+  fetchAlerts,
   fetchStatus,
 } from './services/api';
 
@@ -272,6 +273,20 @@ export default function App() {
     }
   }, []);
 
+  const loadAlerts = useCallback(async () => {
+    const data = await fetchAlerts();
+    if (data && Array.isArray(data)) {
+      setAlerts((prev) => {
+        // Merge: keep HTTP alerts, prepend any new ones by ID
+        const existingIds = new Set(prev.map((a) => a.id));
+        const newOnes = data.filter((a) => !existingIds.has(a.id));
+        if (newOnes.length === 0) return data; // full refresh from backend
+        return [...newOnes, ...prev].slice(0, 100);
+      });
+      updateFreshness('alerts');
+    }
+  }, []);
+
   const loadStatus = useCallback(async () => {
     const data = await fetchStatus();
     if (data) {
@@ -402,6 +417,7 @@ export default function App() {
     loadXIntelligence();
     loadTelegramIntelligence();
     loadOsintOther();
+    loadAlerts();
     loadStatus();
 
     // Poll intel tabs every 30s as backup to WebSocket for live updates
@@ -412,6 +428,7 @@ export default function App() {
       loadOsintOther();
       loadNews();
       loadAIInsights();
+      loadAlerts();
     }, 30000);
     const conflictInterval = setInterval(() => {
       loadConflicts();

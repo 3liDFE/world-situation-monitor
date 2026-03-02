@@ -327,8 +327,8 @@ async def fetch_conflict_news(max_articles: int = 200) -> list[dict]:
     # Filter out noise (importance score 0)
     all_articles = [a for a in all_articles if a.get("importance", 0) > 0]
 
-    # Sort by importance first, then by date
-    all_articles.sort(key=lambda a: (a.get("importance", 0), a.get("published_at", "")), reverse=True)
+    # Sort by date (newest first) - importance is used as filter, not sort
+    all_articles.sort(key=lambda a: a.get("published_at", ""), reverse=True)
 
     # Limit
     all_articles = all_articles[:max_articles]
@@ -411,7 +411,7 @@ async def fetch_breaking_news(max_articles: int = 50) -> list[dict]:
             except Exception as e:
                 logger.warning("Breaking news query '%s' failed: %s", query, str(e))
 
-    articles.sort(key=lambda a: (a.get("importance", 0), a.get("published_at", "")), reverse=True)
+    articles.sort(key=lambda a: a.get("published_at", ""), reverse=True)
     articles = articles[:max_articles]
 
     _news_cache[cache_key] = articles

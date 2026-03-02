@@ -133,6 +133,11 @@ export async function fetchOtherOsint() {
   return request('/api/osint/other', {}, []);
 }
 
+/** Fetch stored alerts (newest first). */
+export async function fetchAlerts() {
+  return request('/api/alerts', {}, []);
+}
+
 /** Fetch all layer data in a single batch request. */
 export async function fetchAllLayers() {
   return request('/api/layers/all', {}, null);
@@ -164,6 +169,7 @@ export default {
   fetchXIntelligence,
   fetchTelegramIntelligence,
   fetchOtherOsint,
+  fetchAlerts,
   fetchAllLayers,
   fetchStatus,
   fetchSanctions,
