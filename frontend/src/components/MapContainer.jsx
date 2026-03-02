@@ -30,7 +30,6 @@ import {
   nuclearSitesToGeoJSON,
   waterwaysToGeoJSON,
   vesselsToGeoJSON,
-  generateArcPoints,
 } from '../utils/mapStyle';
 
 // Layer ID constants for source and layer management
@@ -118,8 +117,6 @@ export default function MapContainer({
   const animFrameRef = useRef(null);
   const prevAircraftRef = useRef({}); // previous positions for interpolation
   const interpStartRef = useRef(0); // timestamp of last data update
-  const missileAnimRef = useRef(null);
-  const prevMissileIdsRef = useRef(''); // track missile data changes to avoid re-animation
 
   // =============================================
   // MAP INITIALIZATION
@@ -263,7 +260,6 @@ export default function MapContainer({
     return () => {
       readyRef.current = false;
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-      if (missileAnimRef.current) cancelAnimationFrame(missileAnimRef.current);
       if (popupRef.current) popupRef.current.remove();
       if (hoverPopup) hoverPopup.remove();
       map.remove();
@@ -1010,83 +1006,16 @@ export default function MapContainer({
     prevAircraftRef.current = nextPositions;
   }, [aircraft, updateSource]);
 
-  // Missiles -- animated arc drawing (only re-animates when data actually changes)
+  // Missiles -- static full arcs (no animation)
   useEffect(() => {
     if (!missiles || missiles.length === 0) {
       updateSource(SOURCES.missiles, missilesToGeoJSON([]));
       updateSource(SOURCES.missileArcs, missileArcsToGeoJSON([]));
-      if (missileAnimRef.current) cancelAnimationFrame(missileAnimRef.current);
-      prevMissileIdsRef.current = '';
       return;
     }
 
     updateSource(SOURCES.missiles, missilesToGeoJSON(missiles));
-
-    // Check if missile data actually changed (avoid re-animation glitch on same data)
-    const currentIds = missiles.map((m) => m.id).sort().join(',');
-    const dataChanged = currentIds !== prevMissileIdsRef.current;
-    prevMissileIdsRef.current = currentIds;
-
-    if (!dataChanged) {
-      // Same data -- just show full arcs, no animation restart
-      updateSource(SOURCES.missileArcs, missileArcsToGeoJSON(missiles));
-      return;
-    }
-
-    // New data arrived -- animate arcs progressively from launch to target
-    const startTime = performance.now();
-    const ANIM_DURATION = 3000; // 3 seconds to fully draw each arc
-
-    function animateMissiles() {
-      const map = mapRef.current;
-      if (!map || !readyRef.current) return;
-
-      const elapsed = performance.now() - startTime;
-      const progress = Math.min(elapsed / ANIM_DURATION, 1);
-
-      // Create partial arcs based on current progress
-      const partialArcs = {
-        type: 'FeatureCollection',
-        features: (missiles || [])
-          .filter(
-            (m) =>
-              m.launch_lat != null &&
-              m.launch_lon != null &&
-              m.target_lat != null &&
-              m.target_lon != null
-          )
-          .map((m) => {
-            const fullPoints = generateArcPoints(
-              [m.launch_lon, m.launch_lat],
-              [m.target_lon, m.target_lat],
-              60
-            );
-            const visibleCount = Math.max(2, Math.floor(fullPoints.length * progress));
-            return {
-              type: 'Feature',
-              geometry: {
-                type: 'LineString',
-                coordinates: fullPoints.slice(0, visibleCount),
-              },
-              properties: {
-                id: m.id,
-                missile_type: m.missile_type || 'unknown',
-                status: m.status || 'reported',
-              },
-            };
-          }),
-      };
-
-      const source = map.getSource(SOURCES.missileArcs);
-      if (source) source.setData(partialArcs);
-
-      if (progress < 1) {
-        missileAnimRef.current = requestAnimationFrame(animateMissiles);
-      }
-    }
-
-    if (missileAnimRef.current) cancelAnimationFrame(missileAnimRef.current);
-    missileAnimRef.current = requestAnimationFrame(animateMissiles);
+    updateSource(SOURCES.missileArcs, missileArcsToGeoJSON(missiles));
   }, [missiles, updateSource]);
 
   // Earthquakes

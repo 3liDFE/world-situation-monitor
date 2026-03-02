@@ -352,10 +352,10 @@ def _record_error(msg: str):
 
 
 async def initial_data_load():
-    """Load all data on startup."""
+    """Load all data on startup with timeout protection."""
     logger.info("Starting initial data load...")
 
-    # Load static data immediately
+    # Load static data immediately (no API calls, instant)
     _data_store["military_bases"] = military_data.get_military_bases()
     _data_store["nuclear_sites"] = military_data.get_nuclear_sites()
     _data_store["waterways"] = military_data.get_waterways()
@@ -363,7 +363,8 @@ async def initial_data_load():
     _data_store["last_update"]["nuclear_sites"] = datetime.now(timezone.utc)
     _data_store["last_update"]["waterways"] = datetime.now(timezone.utc)
 
-    # Fetch live data concurrently
+    # Fetch live data concurrently with a global timeout
+    # This prevents startup from hanging if external APIs are slow
     tasks = [
         refresh_conflicts(),
         refresh_missiles(),
@@ -374,10 +375,19 @@ async def initial_data_load():
         refresh_news(),
         refresh_osint(),
     ]
-    await asyncio.gather(*tasks, return_exceptions=True)
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*tasks, return_exceptions=True),
+            timeout=25.0,  # 25s max for all API calls during startup
+        )
+    except asyncio.TimeoutError:
+        logger.warning("Initial data load timed out after 25s - some data may load later via scheduler")
 
-    # Generate insights after data is loaded
-    await refresh_ai_insights()
+    # Generate insights after data is loaded (quick, local computation)
+    try:
+        await asyncio.wait_for(refresh_ai_insights(), timeout=5.0)
+    except asyncio.TimeoutError:
+        logger.warning("AI insights generation timed out during startup")
 
     logger.info("Initial data load complete.")
 

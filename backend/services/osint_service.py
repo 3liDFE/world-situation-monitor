@@ -71,35 +71,29 @@ async def get_x_intelligence() -> list[dict]:
 
 async def get_telegram_intelligence() -> list[dict]:
     """
-    Scrape public Telegram channels via t.me/s/ web preview.
-    Falls back to curated intelligence data when scraping fails or returns
-    insufficient results (e.g. Telegram blocks requests from cloud hosts).
+    Get Telegram OSINT intelligence. Uses curated data as the primary source
+    (always available), supplemented by live scraping when possible.
+    Cloud hosting IPs are typically blocked by Telegram, so curated data
+    ensures consistent content.
     """
     cache_key = "telegram_intel"
     if cache_key in _telegram_cache:
         return _telegram_cache[cache_key]
 
-    posts = []
+    # Start with curated data as primary source (always available)
+    posts = _get_curated_telegram_intel()
+    existing_ids = {p["id"] for p in posts}
 
+    # Try to supplement with live scraped data
     for channel_info in TELEGRAM_CHANNELS:
         try:
             channel_posts = await _scrape_telegram_channel(channel_info)
-            posts.extend(channel_posts)
+            for post in channel_posts:
+                if post["id"] not in existing_ids:
+                    existing_ids.add(post["id"])
+                    posts.append(post)
         except Exception as e:
-            logger.warning("Failed to scrape Telegram channel %s: %s", channel_info["channel"], e)
-
-    # If scraping returned fewer than 5 posts, supplement with curated data
-    if len(posts) < 5:
-        logger.info(
-            "Telegram scraping returned only %d posts, adding curated fallback data",
-            len(posts),
-        )
-        curated = _get_curated_telegram_intel()
-        # Avoid duplicates by checking IDs
-        existing_ids = {p["id"] for p in posts}
-        for item in curated:
-            if item["id"] not in existing_ids:
-                posts.append(item)
+            logger.debug("Telegram scrape for %s unavailable: %s", channel_info["channel"], e)
 
     # Sort by timestamp, newest first
     posts.sort(key=lambda p: p.get("timestamp", ""), reverse=True)
@@ -108,6 +102,7 @@ async def get_telegram_intelligence() -> list[dict]:
     posts = posts[:50]
 
     _telegram_cache[cache_key] = posts
+    logger.info("Telegram intelligence: %d posts loaded", len(posts))
     return posts
 
 

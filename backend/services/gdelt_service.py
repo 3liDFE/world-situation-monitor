@@ -354,11 +354,15 @@ async def get_missile_events() -> list[MissileEvent]:
             unique_missiles.append(m)
     missile_events = unique_missiles
 
-    # If GDELT returned nothing, add curated active conflict data
-    if len(missile_events) < 3:
-        logger.info("GDELT returned few missile events, adding curated data")
-        curated = _get_curated_missile_events()
-        missile_events.extend(curated)
+    # Always include curated missile events as baseline data
+    # GDELT rarely returns missile-specific results from cloud hosting
+    logger.info("Adding curated missile events as baseline (%d from GDELT)", len(missile_events))
+    curated = _get_curated_missile_events()
+    # Merge curated, avoiding duplicates by checking IDs
+    existing_ids = {m.id for m in missile_events}
+    for cm in curated:
+        if cm.id not in existing_ids:
+            missile_events.append(cm)
 
     _missile_cache[cache_key] = missile_events
     logger.info("Extracted %d missile events (GDELT + curated)", len(missile_events))

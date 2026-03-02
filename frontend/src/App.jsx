@@ -91,10 +91,51 @@ export default function App() {
   // ----- Interval refs for cleanup -----
   const intervalsRef = useRef([]);
 
+  // ----- Time filter helper -----
+  const getTimeFilterMs = (range) => {
+    switch (range) {
+      case '24h': return 24 * 60 * 60 * 1000;
+      case '7d': return 7 * 24 * 60 * 60 * 1000;
+      case '30d': return 30 * 24 * 60 * 60 * 1000;
+      default: return 0; // 'Live' = no filter
+    }
+  };
+
+  const filterByTime = (items, timestampKey = 'timestamp') => {
+    const maxAge = getTimeFilterMs(timeRange);
+    if (!maxAge) return items;
+    const cutoff = Date.now() - maxAge;
+    return items.filter((item) => {
+      const ts = item[timestampKey];
+      if (!ts) return true; // keep items without timestamps
+      const d = new Date(ts).getTime();
+      return !isNaN(d) && d >= cutoff;
+    });
+  };
+
+  // ----- Search filter helper -----
+  const matchesSearch = (item, fields = ['title', 'text', 'description', 'channel', 'callsign', 'name']) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    for (const field of fields) {
+      const val = item[field];
+      if (val && typeof val === 'string' && val.toLowerCase().includes(q)) return true;
+    }
+    return false;
+  };
+
+  // ----- Filtered data -----
+  const filteredConflicts = filterByTime(conflicts).filter(i => matchesSearch(i));
+  const filteredMissiles = filterByTime(missiles).filter(i => matchesSearch(i));
+  const filteredNews = filterByTime(news, 'published_at').filter(i => matchesSearch(i));
+  const filteredXIntel = filterByTime(xIntelligence).filter(i => matchesSearch(i));
+  const filteredTelegram = filterByTime(telegramIntelligence).filter(i => matchesSearch(i));
+  const filteredOsint = filterByTime(osintOther).filter(i => matchesSearch(i));
+
   // ----- Layer counts for display -----
   const layerCounts = {
-    conflicts: conflicts.length,
-    missiles: missiles.length,
+    conflicts: filteredConflicts.length,
+    missiles: filteredMissiles.length,
     commercialAircraft: aircraft.filter(a => !a.is_military).length,
     militaryAircraft: aircraft.filter(a => a.is_military).length,
     naval: vessels.length,
@@ -103,7 +144,7 @@ export default function App() {
     waterways: waterways.length,
     earthquakes: earthquakes.length,
     weather: weather.length,
-    hotspots: conflicts.length,
+    hotspots: filteredConflicts.length,
     sanctions: 0,
     cyberAttacks: 0,
   };
@@ -467,9 +508,9 @@ export default function App() {
 
       <MapContainer
         activeLayers={activeLayers}
-        conflicts={conflicts}
+        conflicts={filteredConflicts}
         aircraft={aircraft}
-        missiles={missiles}
+        missiles={filteredMissiles}
         earthquakes={earthquakes}
         weather={weather}
         militaryBases={militaryBases}
@@ -500,11 +541,11 @@ export default function App() {
         selectedCountry={selectedCountry}
         onCountryChange={setSelectedCountry}
         liveFeeds={liveFeeds}
-        news={news}
+        news={filteredNews}
         aiInsights={aiInsights}
-        xIntelligence={xIntelligence}
-        telegramIntelligence={telegramIntelligence}
-        osintOther={osintOther}
+        xIntelligence={filteredXIntel}
+        telegramIntelligence={filteredTelegram}
+        osintOther={filteredOsint}
         alerts={alerts}
       />
     </div>
